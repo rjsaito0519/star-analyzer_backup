@@ -34,7 +34,7 @@ Any task involving batch submit, watch-merge, Discord notify, progress PDF, or
 6. Progress hadd must **only read** subjob ROOT under `rootfile/`; write only under `$SCRATCH/.../progress/`.
 7. Discord / PDF failures are **soft** (log and continue); final merge success is independent.
 8. Optional mysubmit webhook: repo-root `.discord_webhook` (excluded; never commit).
-9. Personal tree backup: [`../mytool/star_analyzer_backup/`](../mytool/star_analyzer_backup/) (`backup.sh` → DEST commit; `push_backup.sh` manual). Uses **separate** webhook file `mytool/star_analyzer_backup/.discord_webhook` (not the mysubmit one). Do not mix into the shared star-analyzer remote.
+9. Personal tree backup: [`../mytool/star_analyzer_backup/`](../mytool/star_analyzer_backup/) (`backup.sh` → DEST commit; `push_backup.sh` manual; hourly loop via `tmux_start.sh` / `tmux_stop.sh` / `monitor.sh`). Uses **separate** webhook file `mytool/star_analyzer_backup/.discord_webhook` (not the mysubmit one). Do not mix into the shared star-analyzer remote.
 10. Before changing personal scripts, re-read this file and [`README.md`](README.md).
 
 ## Key paths

@@ -21,6 +21,8 @@ LOCK_FILE="${LOCK_FILE:-$STATE_DIR/backup.lock}"
 BACKUP_SCRIPT="${BACKUP_SCRIPT:-$SCRIPT_DIR/backup.sh}"
 PUSH_SCRIPT="${PUSH_SCRIPT:-$SCRIPT_DIR/push_backup.sh}"
 DISCORD_WEBHOOK_FILE="${DISCORD_WEBHOOK_FILE:-$SCRIPT_DIR/.discord_webhook}"
+TMUX_SESSION="${TMUX_SESSION:-star-analyzer-backup}"
+BACKUP_INTERVAL_SEC="${BACKUP_INTERVAL_SEC:-3600}"
 MARKER="# star-analyzer-backup"
 
 if [[ -t 1 ]]; then
@@ -135,6 +137,19 @@ else
   row ok "Lock/run" "idle"
 fi
 
+# tmux loop (preferred scheduler; cron often denied on starsub*)
+if ! command -v tmux >/dev/null 2>&1; then
+  row bad "Tmux loop" "tmux not installed"
+elif tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
+  if pgrep -f '[/]star_analyzer_backup/loop_backup\.sh' >/dev/null 2>&1; then
+    row ok "Tmux loop" "session $TMUX_SESSION running (interval ${BACKUP_INTERVAL_SEC}s)"
+  else
+    row warn "Tmux loop" "session $TMUX_SESSION exists but loop_backup.sh not seen"
+  fi
+else
+  row warn "Tmux loop" "not running — ./tmux_start.sh"
+fi
+
 # webhook (backup-only)
 if webhook_configured; then
   row ok "Webhook" "configured (backup-only file)"
@@ -142,16 +157,16 @@ else
   row warn "Webhook" "not set — edit $DISCORD_WEBHOOK_FILE"
 fi
 
-# cron / crontab permission
+# cron / crontab permission (optional / legacy)
 cron_out="$(crontab -l 2>&1)" || cron_rc=$?
 cron_rc="${cron_rc:-0}"
 if echo "$cron_out" | grep -qi 'not allowed'; then
-  row bad "Cron" "crontab DENIED on $(hostname) — use another host or run backup.sh manually"
+  row info "Cron" "crontab DENIED on $(hostname) — use tmux instead"
 elif echo "$cron_out" | grep -Fq "$MARKER"; then
-  row ok "Cron" "registered on $(hostname)"
+  row warn "Cron" "still registered — prefer ONE scheduler (tmux OR cron)"
   echo "           $(echo "$cron_out" | grep -F "$MARKER")"
 else
-  row warn "Cron" "not registered (optional: ./cron_start.sh on a host that allows crontab)"
+  row ok "Cron" "not registered (tmux is preferred)"
 fi
 
 echo
@@ -161,7 +176,9 @@ if [[ -f "$LOG_FILE" ]]; then
 fi
 echo
 printf '%b[commands]%b\n' "$DIM" "$NC"
+echo "  $SCRIPT_DIR/tmux_start.sh     # start hourly loop (no push)"
+echo "  $SCRIPT_DIR/tmux_stop.sh"
+echo "  $SCRIPT_DIR/cron_monitor.sh   # this board"
 echo "  $BACKUP_SCRIPT"
-echo "  $PUSH_SCRIPT"
-echo "  $SCRIPT_DIR/cron_start.sh   # only if crontab allowed; ONE host"
-echo "  $SCRIPT_DIR/cron_stop.sh"
+echo "  $PUSH_SCRIPT                  # push is always manual"
+echo "  tmux attach -t $TMUX_SESSION"
