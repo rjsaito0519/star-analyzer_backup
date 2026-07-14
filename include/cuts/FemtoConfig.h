@@ -66,6 +66,20 @@ class FemtoConfig {
   Double_t kaonMinusMinRapidityCm;
   Double_t kaonMinusMaxRapidityCm;
 
+  // K+ track cuts for K+-Xi- femto (StKplusXiFemtoMaker).
+  Double_t kaonPlusMaxDca;
+  Double_t kaonPlusMinPt;
+  Double_t kaonPlusMaxPt;
+  Double_t kaonPlusMaxAbsEta;
+  Double_t kaonPlusMaxAbsNSigma;
+  Short_t kaonPlusMinNHitsFit;
+  Double_t kaonPlusMinNHitsRatio;
+  Double_t kaonPlusTofMomentumThreshold;
+  Double_t kaonPlusMinMass2;
+  Double_t kaonPlusMaxMass2;
+  Double_t xiMassMin;
+  Double_t xiMassMax;
+
   // 4He bachelor cuts for femto pairing.
   Double_t he4MaxDca;
   Double_t he4MinPMom;

@@ -78,6 +78,19 @@ void FemtoConfig::SetDefaults() {
   kaonMinusMinRapidityCm = -1.0;
   kaonMinusMaxRapidityCm = 0.0;
 
+  kaonPlusMaxDca = 2.0;
+  kaonPlusMinPt = 0.2;
+  kaonPlusMaxPt = 2.0;
+  kaonPlusMaxAbsEta = 1.0;
+  kaonPlusMaxAbsNSigma = 2.0;
+  kaonPlusMinNHitsFit = 15;
+  kaonPlusMinNHitsRatio = 0.52;
+  kaonPlusTofMomentumThreshold = 0.5;
+  kaonPlusMinMass2 = 0.15;
+  kaonPlusMaxMass2 = 0.35;
+  xiMassMin = 1.312;
+  xiMassMax = 1.332;
+
   he4MaxDca = 1.0;
   he4MinPMom = 0.0;
   he4MaxPMom = 99.0;
@@ -281,6 +294,44 @@ void FemtoConfig::ApplyYamlValues(const std::map<std::string, std::string>& valu
   }
   if (values.find("kaonMinusMaxRapidityCm") != values.end()) {
     kaonMinusMaxRapidityCm = YamlParser::ToDouble(values.at("kaonMinusMaxRapidityCm"), kaonMinusMaxRapidityCm);
+  }
+
+  if (values.find("kaonPlusMaxDca") != values.end()) {
+    kaonPlusMaxDca = YamlParser::ToDouble(values.at("kaonPlusMaxDca"), kaonPlusMaxDca);
+  }
+  if (values.find("kaonPlusMinPt") != values.end()) {
+    kaonPlusMinPt = YamlParser::ToDouble(values.at("kaonPlusMinPt"), kaonPlusMinPt);
+  }
+  if (values.find("kaonPlusMaxPt") != values.end()) {
+    kaonPlusMaxPt = YamlParser::ToDouble(values.at("kaonPlusMaxPt"), kaonPlusMaxPt);
+  }
+  if (values.find("kaonPlusMaxAbsEta") != values.end()) {
+    kaonPlusMaxAbsEta = YamlParser::ToDouble(values.at("kaonPlusMaxAbsEta"), kaonPlusMaxAbsEta);
+  }
+  if (values.find("kaonPlusMaxAbsNSigma") != values.end()) {
+    kaonPlusMaxAbsNSigma = YamlParser::ToDouble(values.at("kaonPlusMaxAbsNSigma"), kaonPlusMaxAbsNSigma);
+  }
+  if (values.find("kaonPlusMinNHitsFit") != values.end()) {
+    kaonPlusMinNHitsFit = YamlParser::ToInt(values.at("kaonPlusMinNHitsFit"), kaonPlusMinNHitsFit);
+  }
+  if (values.find("kaonPlusMinNHitsRatio") != values.end()) {
+    kaonPlusMinNHitsRatio = YamlParser::ToDouble(values.at("kaonPlusMinNHitsRatio"), kaonPlusMinNHitsRatio);
+  }
+  if (values.find("kaonPlusTofMomentumThreshold") != values.end()) {
+    kaonPlusTofMomentumThreshold =
+        YamlParser::ToDouble(values.at("kaonPlusTofMomentumThreshold"), kaonPlusTofMomentumThreshold);
+  }
+  if (values.find("kaonPlusMinMass2") != values.end()) {
+    kaonPlusMinMass2 = YamlParser::ToDouble(values.at("kaonPlusMinMass2"), kaonPlusMinMass2);
+  }
+  if (values.find("kaonPlusMaxMass2") != values.end()) {
+    kaonPlusMaxMass2 = YamlParser::ToDouble(values.at("kaonPlusMaxMass2"), kaonPlusMaxMass2);
+  }
+  if (values.find("xiMassMin") != values.end()) {
+    xiMassMin = YamlParser::ToDouble(values.at("xiMassMin"), xiMassMin);
+  }
+  if (values.find("xiMassMax") != values.end()) {
+    xiMassMax = YamlParser::ToDouble(values.at("xiMassMax"), xiMassMax);
   }
 
   if (values.find("he4MaxDca") != values.end()) he4MaxDca = YamlParser::ToDouble(values.at("he4MaxDca"), he4MaxDca);
