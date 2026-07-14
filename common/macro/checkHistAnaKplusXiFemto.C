@@ -10,6 +10,7 @@
 #include <TString.h>
 #include <TStyle.h>
 #include <iostream>
+#include <vector>
 #include <limits.h>
 #include <stdlib.h>
 
@@ -32,6 +33,9 @@ static TString resolveFigureRoot(const char* pwd) {
 void checkHistAnaKplusXiFemto(const Char_t* rootFile,
                               const Char_t* anaNameArg = "auau19_anaKplusXiFemto",
                               const Char_t* mainconfPath = 0) {
+  gROOT->SetBatch(kTRUE);
+  gStyle->SetOptStat(1110);
+
   const char* pwd = gSystem->Getenv("PWD");
   if (!pwd) pwd = ".";
 
@@ -47,6 +51,7 @@ void checkHistAnaKplusXiFemto(const Char_t* rootFile,
     std::cerr << "ERROR: Failed to load config: " << mainConfigPath.Data() << std::endl;
     return;
   }
+
   TString anaName = ConfigManager::GetInstance().GetAnaName().c_str();
   if (anaName.IsNull() && anaNameArg) anaName = anaNameArg;
   if (anaName.IsNull()) {
@@ -60,51 +65,55 @@ void checkHistAnaKplusXiFemto(const Char_t* rootFile,
     return;
   }
 
-  TString figDir = resolveFigureRoot(pwd) + "/" + anaName;
-  gSystem->mkdir(figDir, kTRUE);
-  TString pdfPath = figDir + "/" + anaName + "_checkHistAnaKplusXiFemto.pdf";
-
-  gStyle->SetOptStat(1110);
-  PdfIOMan pdf(pdfPath.Data());
-
-  TCanvas c("c", "c", 1000, 800);
-  c.Divide(2, 2);
-  const char* keys1[] = {"hVz", "hRefMult", "hCentrality", "hNKp"};
-  for (Int_t i = 0; i < 4; i++) {
-    c.cd(i + 1);
-    TH1* h = (TH1*)fin->Get(keys1[i]);
-    if (h) h->Draw("hist");
+  TString figDir = resolveFigureRoot(pwd) + "/" + anaName + "/";
+  if (gSystem->AccessPathName(figDir)) {
+    gSystem->mkdir(figDir, kTRUE);
   }
-  pdf.SavePage(&c, "Event / K+ QA");
+  TString pdfName = figDir + anaName + "_checkHistAnaKplusXiFemto.pdf";
+  std::cout << "Output PDF: " << pdfName.Data() << std::endl;
 
-  c.Clear();
-  c.Divide(2, 2);
-  const char* keys2[] = {"hXi_InvMass", "hNXi", "hKp_NSigma", "hKp_Pt"};
-  for (Int_t i = 0; i < 4; i++) {
-    c.cd(i + 1);
-    TH1* h = (TH1*)fin->Get(keys2[i]);
-    if (h) h->Draw("hist");
-  }
-  pdf.SavePage(&c, "Xi / K+ spectra");
+  PdfHeader::OpenPdf(pdfName);
 
-  c.Clear();
-  c.Divide(2, 2);
-  c.cd(1);
-  TH1* hSE = (TH1*)fin->Get("hKstarSE_kp_xim");
-  if (hSE) hSE->Draw("hist");
-  c.cd(2);
-  TH1* hME = (TH1*)fin->Get("hKstarME_kp_xim");
-  if (hME) hME->Draw("hist");
-  c.cd(3);
-  TH2* hSEc = (TH2*)fin->Get("hKstarSEVsCent_kp_xim");
-  if (hSEc) hSEc->Draw("colz");
-  c.cd(4);
-  TH2* hm2 = (TH2*)fin->Get("hKp_Mass2VsP");
-  if (hm2) hm2->Draw("colz");
-  pdf.SavePage(&c, "k* SE/ME and K+ m2");
+  std::vector<std::string> inputs;
+  inputs.push_back((const char*)rootFile);
+  TString note = "Check histograms from run_anaKplusXiFemto.C (StKplusXiFemtoMaker).\n";
+  note += "K+-Xi- SE/ME k* and K+ TOF / Xi mass QA.\n";
+  PdfHeader::MakePdfHeaderPage(pdfName, "checkHistAnaKplusXiFemto.C", inputs, note.Data(), true, anaName.Data());
 
-  pdf.Close();
+  TCanvas* c1 = new TCanvas("c1", "canvas", 1200, 800);
+  TH1* h1 = 0;
+  TH2* h2 = 0;
+
+  // Page 1: event / K+ counts
+  c1->Clear();
+  c1->Divide(2, 2);
+  c1->cd(1); h1 = (TH1*)fin->Get("hVz"); if (h1) h1->Draw("hist");
+  c1->cd(2); h1 = (TH1*)fin->Get("hRefMult"); if (h1) h1->Draw("hist");
+  c1->cd(3); h1 = (TH1*)fin->Get("hCentrality"); if (h1) h1->Draw("hist");
+  c1->cd(4); h1 = (TH1*)fin->Get("hNKp"); if (h1) h1->Draw("hist");
+  c1->Print(pdfName);
+
+  // Page 2: Xi / K+ spectra
+  c1->Clear();
+  c1->Divide(2, 2);
+  c1->cd(1); h1 = (TH1*)fin->Get("hXi_InvMass"); if (h1) h1->Draw("hist");
+  c1->cd(2); h1 = (TH1*)fin->Get("hNXi"); if (h1) h1->Draw("hist");
+  c1->cd(3); h1 = (TH1*)fin->Get("hKp_NSigma"); if (h1) h1->Draw("hist");
+  c1->cd(4); h1 = (TH1*)fin->Get("hKp_Pt"); if (h1) h1->Draw("hist");
+  c1->Print(pdfName);
+
+  // Page 3: k* SE/ME + K+ m2
+  c1->Clear();
+  c1->Divide(2, 2);
+  c1->cd(1); h1 = (TH1*)fin->Get("hKstarSE_kp_xim"); if (h1) h1->Draw("hist");
+  c1->cd(2); h1 = (TH1*)fin->Get("hKstarME_kp_xim"); if (h1) h1->Draw("hist");
+  c1->cd(3); h2 = (TH2*)fin->Get("hKstarSEVsCent_kp_xim"); if (h2) h2->Draw("colz");
+  c1->cd(4); h2 = (TH2*)fin->Get("hKp_Mass2VsP"); if (h2) h2->Draw("colz");
+  c1->Print(pdfName);
+
+  PdfHeader::ClosePdf(pdfName);
+  delete c1;
   fin->Close();
   delete fin;
-  std::cout << "Wrote " << pdfPath << std::endl;
+  std::cout << "Wrote " << pdfName.Data() << std::endl;
 }
