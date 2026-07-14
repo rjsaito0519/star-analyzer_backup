@@ -45,3 +45,9 @@ chmod +x *.sh
 ```
 
 `config.env` is local; prefer editing it instead of committing secrets.
+
+## Gotchas
+
+- **Never** let rsync delete DEST `.git` (script uses `--filter='P .git'`).
+- `starsub01` may deny `crontab` — monitor shows that in red; run `backup.sh` manually or cron on a host that allows it.
+- Backup Discord webhook is **not** the repo-root mysubmit webhook.

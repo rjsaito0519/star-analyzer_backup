@@ -108,10 +108,42 @@ count_rsync_changes() {
 }
 
 do_rsync() {
+  # NEVER use --delete-excluded alone with ".git" in excludes: that deletes DEST/.git.
+  # Protect DEST's backup git metadata; still --delete unmatched non-excluded paths.
   rsync -a --delete \
+    --filter='P .git' \
+    --filter='P .git/**' \
     --exclude-from="$RSYNC_EXCLUDE" \
     "$SRC/" "$DEST/"
 }
+
+# If a previous buggy sync wiped DEST/.git, reattach to GitHub history without
+# throwing away the working tree (mixed reset).
+recover_dest_git_if_needed() {
+  if [[ -d "$DEST/.git" ]]; then
+    return 0
+  fi
+  log "WARN: DEST .git missing; recovering from origin ($GITHUB_REMOTE)"
+  mkdir -p "$DEST"
+  git -C "$DEST" init -b "$GITHUB_BRANCH" >/dev/null 2>&1 \
+    || git -C "$DEST" init >/dev/null
+  git -C "$DEST" branch -M "$GITHUB_BRANCH" 2>/dev/null || true
+  if ! git -C "$DEST" remote get-url origin >/dev/null 2>&1; then
+    git -C "$DEST" remote add origin "$GITHUB_REMOTE"
+  else
+    git -C "$DEST" remote set-url origin "$GITHUB_REMOTE"
+  fi
+  if git -C "$DEST" fetch origin "$GITHUB_BRANCH" 2>>"$LOG_FILE"; then
+    git -C "$DEST" checkout -B "$GITHUB_BRANCH" "origin/$GITHUB_BRANCH" >/dev/null 2>&1 \
+      || git -C "$DEST" reset --mixed "origin/$GITHUB_BRANCH" >/dev/null 2>&1 \
+      || true
+    log "OK: restored DEST .git from origin/$GITHUB_BRANCH"
+  else
+    log "WARN: fetch failed; local empty git repo at DEST (first commit will recreate history)"
+  fi
+  ensure_dest_gitignore
+}
+
 
 update_discord_sync() {
   local webhook_url="$1"
@@ -212,6 +244,12 @@ do_backup() {
     sync_status="rsync failed"
     log "ERROR: rsync failed"
   else
+    recover_dest_git_if_needed
+    if [[ ! -d "$DEST/.git" ]]; then
+      sync_ok=false
+      sync_status="DEST .git missing after sync"
+      log "ERROR: DEST .git still missing after recover attempt"
+    else
     ensure_dest_gitignore
     # Drop any previously synced secrets from the index (ignore quietly if absent).
     git -C "$DEST" rm -r --cached -f --ignore-unmatch \
@@ -229,7 +267,11 @@ do_backup() {
 
     pushd "$DEST" >/dev/null
 
-    if [[ -n "$(git status --porcelain)" ]]; then
+    if ! git rev-parse --git-dir >/dev/null 2>&1; then
+      sync_ok=false
+      sync_status="DEST is not a git repo"
+      log "ERROR: DEST is not a git repository"
+    elif [[ -n "$(git status --porcelain 2>/dev/null || true)" ]]; then
       git add -A
       local commit_msg="auto backup $(date '+%Y-%m-%d %H:%M:%S')"
       git commit -m "$commit_msg" --quiet
@@ -261,6 +303,7 @@ do_backup() {
     fi
 
     popd >/dev/null
+    fi
   fi
 
   if [[ -n "$webhook_url" ]]; then

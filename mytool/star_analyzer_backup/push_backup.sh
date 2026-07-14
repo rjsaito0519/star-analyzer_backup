@@ -106,8 +106,28 @@ update_discord_commit() {
 }
 
 if [[ ! -d "$DEST/.git" ]]; then
-  log "ERROR: backup git repo not found: $DEST"
-  exit 1
+  log "WARN: backup git repo not found at $DEST; attempting recover via backup.sh logic"
+  # Inline light recover (same as backup.sh): reattach to GitHub
+  mkdir -p "$DEST"
+  git -C "$DEST" init -b "$GITHUB_BRANCH" >/dev/null 2>&1 || git -C "$DEST" init >/dev/null
+  git -C "$DEST" branch -M "$GITHUB_BRANCH" 2>/dev/null || true
+  if ! git -C "$DEST" remote get-url origin >/dev/null 2>&1; then
+    git -C "$DEST" remote add origin "$GITHUB_REMOTE"
+  else
+    git -C "$DEST" remote set-url origin "$GITHUB_REMOTE"
+  fi
+  if ! git -C "$DEST" fetch origin "$GITHUB_BRANCH" 2>>"$LOG_FILE"; then
+    log "ERROR: could not fetch $GITHUB_REMOTE — run ./backup.sh first"
+    exit 1
+  fi
+  git -C "$DEST" checkout -B "$GITHUB_BRANCH" "origin/$GITHUB_BRANCH" >/dev/null 2>&1 \
+    || git -C "$DEST" reset --mixed "origin/$GITHUB_BRANCH" >/dev/null 2>&1 \
+    || true
+  if [[ ! -d "$DEST/.git" ]]; then
+    log "ERROR: backup git repo not found: $DEST"
+    exit 1
+  fi
+  log "OK: recovered DEST .git from origin/$GITHUB_BRANCH"
 fi
 
 last_check="$(date '+%Y-%m-%d %H:%M:%S %z')"

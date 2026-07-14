@@ -33,15 +33,17 @@ Any task involving batch submit, watch-merge, Discord notify, progress PDF, or
 5. Scope Condor / Discord / PID / scratch state by **`<anaName>/<jobid>`** (32-hex JOBID from that submit). Never treat “all my Condor jobs empty” as completion for one submit.
 6. Progress hadd must **only read** subjob ROOT under `rootfile/`; write only under `$SCRATCH/.../progress/`.
 7. Discord / PDF failures are **soft** (log and continue); final merge success is independent.
-8. Optional webhook: repo-root `.discord_webhook` (excluded; never commit).
-9. Before changing personal scripts, re-read this file and [`README.md`](README.md).
+8. Optional mysubmit webhook: repo-root `.discord_webhook` (excluded; never commit).
+9. Personal tree backup: [`../mytool/star_analyzer_backup/`](../mytool/star_analyzer_backup/) (`backup.sh` → DEST commit; `push_backup.sh` manual). Uses **separate** webhook file `mytool/star_analyzer_backup/.discord_webhook` (not the mysubmit one). Do not mix into the shared star-analyzer remote.
+10. Before changing personal scripts, re-read this file and [`README.md`](README.md).
 
 ## Key paths
 
 - Entry: `job/run/mysubmit`
 - Watcher: `local/watch_job_and_merge_mine.sh`
+- Backup: `mytool/star_analyzer_backup/` (DEST `/gpfs01/star/pwg/rjsaito/backup/star-analyzer` → `star-analyzer_backup.git`)
 - Docs: `local/README.md`, this file
-- Exclude: `.git/info/exclude` (`local/`, `job/run/mysubmit`, `.discord_webhook`, `*.wip.bak`, …)
+- Exclude: `.git/info/exclude` (`local/`, `job/run/mysubmit`, `.discord_webhook`, `*.wip.bak`, `mytool`, …)
 - Retired WIP: `backup/*.wip.bak` (not source of truth)
 
 ## Re-attach watcher (existing job)

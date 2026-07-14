@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Show cron registration and recent backup status.
+# Colored at-a-glance monitor for star-analyzer backup.
 
 set -euo pipefail
 
@@ -23,6 +23,32 @@ PUSH_SCRIPT="${PUSH_SCRIPT:-$SCRIPT_DIR/push_backup.sh}"
 DISCORD_WEBHOOK_FILE="${DISCORD_WEBHOOK_FILE:-$SCRIPT_DIR/.discord_webhook}"
 MARKER="# star-analyzer-backup"
 
+if [[ -t 1 ]]; then
+  RED='\033[0;31m'
+  GREEN='\033[0;32m'
+  YELLOW='\033[1;33m'
+  CYAN='\033[0;36m'
+  BOLD='\033[1m'
+  DIM='\033[2m'
+  NC='\033[0m'
+else
+  RED='' GREEN='' YELLOW='' CYAN='' BOLD='' DIM='' NC=''
+fi
+
+ok()   { printf '%bOK%b'   "$GREEN$BOLD" "$NC"; }
+warn() { printf '%bWARN%b' "$YELLOW$BOLD" "$NC"; }
+bad()  { printf '%bFAIL%b' "$RED$BOLD" "$NC"; }
+info() { printf '%bINFO%b' "$CYAN$BOLD" "$NC"; }
+
+row() {
+  local status_fn="$1"
+  local label="$2"
+  local detail="$3"
+  printf '  ['
+  "$status_fn"
+  printf '] %-14s %s\n' "$label" "$detail"
+}
+
 is_backup_running() {
   if pgrep -f '[/]star_analyzer_backup/backup\.sh' >/dev/null 2>&1; then
     return 0
@@ -33,64 +59,109 @@ is_backup_running() {
   return 1
 }
 
-last_log_event() {
-  if [[ ! -f "$LOG_FILE" ]]; then
-    echo "none"
-    return
-  fi
-  tac "$LOG_FILE" | grep -E 'DONE with errors|ERROR:|SKIP:|DONE$|START:' | head -n 1 || echo "none"
+webhook_configured() {
+  [[ -f "$DISCORD_WEBHOOK_FILE" ]] || return 1
+  local url
+  url="$(grep -v '^[[:space:]]*#' "$DISCORD_WEBHOOK_FILE" | grep -v '^[[:space:]]*$' | head -n 1 || true)"
+  [[ -n "$url" ]]
 }
 
-echo "=== star-analyzer backup monitor ==="
+printf '%b=== star-analyzer backup monitor ===%b\n' "$BOLD" "$NC"
 echo "host: $(hostname)"
-echo
 echo "SRC:  $SRC"
 echo "DEST: $DEST"
 echo "REMOTE: $GITHUB_REMOTE ($GITHUB_BRANCH)"
-echo "webhook file: $DISCORD_WEBHOOK_FILE"
 echo
 
-echo "[cron]"
-if crontab -l 2>/dev/null | grep -Fq "$MARKER"; then
-  crontab -l 2>/dev/null | grep -F "$MARKER"
-  echo "status: registered on $(hostname)"
-else
-  echo "status: not registered on $(hostname)"
-fi
-echo
+echo "[status board]"
 
-echo "[lock]"
-if is_backup_running; then
-  echo "status: backup appears RUNNING"
-  pgrep -af '[/]star_analyzer_backup/backup\.sh' 2>/dev/null || true
-else
-  echo "status: idle"
-fi
-echo "lock file: $LOCK_FILE"
-echo
-
-echo "[log] $LOG_FILE"
-echo "last event: $(last_log_event)"
-if [[ -f "$LOG_FILE" ]]; then
-  echo "--- last 15 lines ---"
-  tail -n 15 "$LOG_FILE"
-fi
-echo
-
-echo "[dest git]"
+# DEST git
 if [[ -d "$DEST/.git" ]]; then
-  echo "HEAD: $(git -C "$DEST" rev-parse --short HEAD 2>/dev/null || echo none)"
-  echo "origin: $(git -C "$DEST" remote get-url origin 2>/dev/null || echo none)"
-  if git -C "$DEST" rev-parse "origin/$GITHUB_BRANCH" >/dev/null 2>&1; then
-    ahead="$(git -C "$DEST" rev-list --count "origin/$GITHUB_BRANCH..$GITHUB_BRANCH" 2>/dev/null || echo 0)"
-    echo "ahead of origin/$GITHUB_BRANCH: $ahead"
+  head_s="$(git -C "$DEST" rev-parse --short HEAD 2>/dev/null || echo '?')"
+  row ok "DEST .git" "present (HEAD $head_s)"
+else
+  row bad "DEST .git" "MISSING — run ./backup.sh (auto-recover from GitHub)"
+fi
+
+# origin sync
+if [[ -d "$DEST/.git" ]]; then
+  origin_url="$(git -C "$DEST" remote get-url origin 2>/dev/null || true)"
+  if [[ -z "$origin_url" ]]; then
+    row bad "origin remote" "not set"
+  else
+    git -C "$DEST" fetch origin "$GITHUB_BRANCH" >/dev/null 2>&1 || true
+    if git -C "$DEST" rev-parse "origin/$GITHUB_BRANCH" >/dev/null 2>&1; then
+      ahead="$(git -C "$DEST" rev-list --count "origin/$GITHUB_BRANCH..$GITHUB_BRANCH" 2>/dev/null || echo 0)"
+      behind="$(git -C "$DEST" rev-list --count "$GITHUB_BRANCH..origin/$GITHUB_BRANCH" 2>/dev/null || echo 0)"
+      if [[ "$ahead" -eq 0 && "$behind" -eq 0 ]]; then
+        row ok "GitHub sync" "up to date with origin/$GITHUB_BRANCH"
+      elif [[ "$ahead" -gt 0 ]]; then
+        row warn "GitHub sync" "$ahead commit(s) ahead — run ./push_backup.sh"
+      else
+        row warn "GitHub sync" "$behind commit(s) behind origin"
+      fi
+    else
+      row warn "GitHub sync" "origin/$GITHUB_BRANCH not fetched yet"
+    fi
   fi
 else
-  echo "DEST git not initialized yet"
+  row bad "GitHub sync" "n/a (no DEST .git)"
+fi
+
+# last backup log (prefer a finished cycle)
+if [[ ! -f "$LOG_FILE" ]]; then
+  row warn "Last backup" "no log yet"
+else
+  last_done="$(tac "$LOG_FILE" | grep -E 'DONE with errors|^\[.*\] DONE$' | head -n 1 || true)"
+  last_err="$(tac "$LOG_FILE" | grep -E 'ERROR:' | head -n 1 || true)"
+  if [[ -n "$last_done" ]] && echo "$last_done" | grep -q 'DONE with errors'; then
+    row bad "Last backup" "$last_done"
+  elif [[ -n "$last_err" ]] && [[ -z "$last_done" || "$last_err" > "$last_done" ]]; then
+    # crude: if newest ERROR line is more recent than DONE, show warn
+    row warn "Last backup" "$last_err (after/without clean DONE — check log)"
+  elif [[ -n "$last_done" ]]; then
+    row ok "Last backup" "$last_done"
+  else
+    row info "Last backup" "$(tac "$LOG_FILE" | grep -E 'START:|SKIP:' | head -n 1 || echo none)"
+  fi
+fi
+
+# lock / running (match backup.sh only, not this monitor / docs)
+if pgrep -f '/star_analyzer_backup/backup\.sh([[:space:]]|$)' >/dev/null 2>&1; then
+  row warn "Lock/run" "backup.sh appears RUNNING"
+elif [[ -f "$LOCK_FILE" ]] && ! flock -n "$LOCK_FILE" true 2>/dev/null; then
+  row warn "Lock/run" "lock held"
+else
+  row ok "Lock/run" "idle"
+fi
+
+# webhook (backup-only)
+if webhook_configured; then
+  row ok "Webhook" "configured (backup-only file)"
+else
+  row warn "Webhook" "not set — edit $DISCORD_WEBHOOK_FILE"
+fi
+
+# cron / crontab permission
+cron_out="$(crontab -l 2>&1)" || cron_rc=$?
+cron_rc="${cron_rc:-0}"
+if echo "$cron_out" | grep -qi 'not allowed'; then
+  row bad "Cron" "crontab DENIED on $(hostname) — use another host or run backup.sh manually"
+elif echo "$cron_out" | grep -Fq "$MARKER"; then
+  row ok "Cron" "registered on $(hostname)"
+  echo "           $(echo "$cron_out" | grep -F "$MARKER")"
+else
+  row warn "Cron" "not registered (optional: ./cron_start.sh on a host that allows crontab)"
+fi
+
+echo
+printf '%b[recent log]%b %s\n' "$DIM" "$NC" "$LOG_FILE"
+if [[ -f "$LOG_FILE" ]]; then
+  tail -n 12 "$LOG_FILE"
 fi
 echo
-echo "Commands:"
+printf '%b[commands]%b\n' "$DIM" "$NC"
 echo "  $BACKUP_SCRIPT"
 echo "  $PUSH_SCRIPT"
-echo "  $SCRIPT_DIR/cron_start.sh   # ONE host only"
+echo "  $SCRIPT_DIR/cron_start.sh   # only if crontab allowed; ONE host"
 echo "  $SCRIPT_DIR/cron_stop.sh"
