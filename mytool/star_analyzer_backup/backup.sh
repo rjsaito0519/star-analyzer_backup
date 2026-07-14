@@ -92,8 +92,6 @@ init_dest_repo() {
     git -C "$DEST" remote add origin "$GITHUB_REMOTE"
     log "INIT: added origin $GITHUB_REMOTE"
   fi
-
-  ensure_dest_gitignore
 }
 
 count_rsync_changes() {
