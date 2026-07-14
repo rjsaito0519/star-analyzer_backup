@@ -8,7 +8,7 @@ Cursor loads a thin always-on pointer at `.cursor/rules/personal-local-ops.mdc` 
 
 ## Requirements
 
-- `SCRATCH` set (`echo $SCRATCH`, e.g. `/tmp/rjsaito`)
+- `SCRATCH` defaults to `/tmp/rjsaito` if unset (`SCRATCH=...` to override)
 - Optional Discord webhook file at repo root: `.discord_webhook` (single URL line)
 - `condor_q` available for queue progress (falls back to ROOT file counts if missing)
 - `hadd` for hourly progress merges
@@ -68,7 +68,7 @@ Repo-root `log/` / `err/` were the **old** SUMS stdout/stderr location; they may
 bash -n job/run/mysubmit
 bash -n local/watch_job_and_merge_mine.sh
 # Re-attach watcher to an existing submit:
-SCRATCH=${SCRATCH:?} ./local/watch_job_and_merge_mine.sh \
+./local/watch_job_and_merge_mine.sh \
   --runmeta job/run/runmeta/runmeta_<anaName>_<jobid>.json
 ```
 

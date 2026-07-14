@@ -48,7 +48,8 @@ Options:
   --exclude-bad-roots LIST Pass --exclude-list to merge_root_files.csh
   -h, --help               Show this help
 
-Requires: SCRATCH (e.g. /tmp/$USER). Volatile outputs under:
+SCRATCH defaults to /tmp/rjsaito if unset (override with SCRATCH=...).
+Volatile outputs under:
   $SCRATCH/star-analyzer/<anaName>/<jobid>/{watch,progress,log,err}
 EOF
 }
@@ -63,9 +64,9 @@ die() {
 }
 
 require_scratch() {
-  if [[ -z "${SCRATCH:-}" ]]; then
-    die "SCRATCH is unset; set it (echo \$SCRATCH) before running the personal watcher"
-  fi
+  SCRATCH="${SCRATCH:-/tmp/rjsaito}"
+  mkdir -p "$SCRATCH" || die "cannot create SCRATCH=$SCRATCH"
+  export SCRATCH
 }
 
 scratch_base_for() {

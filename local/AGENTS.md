@@ -29,7 +29,7 @@ Any task involving batch submit, watch-merge, Discord notify, progress PDF, or
 1. **Do not modify** official `job/run/submit.sh` or `script/watch_job_and_merge.sh` for personal features.
 2. **Do not put personal ignore rules in `.gitignore`**. Use `.git/info/exclude`.
 3. Prefer **`./job/run/mysubmit <joblist_<anaName>.xml>`** when the user wants personal submit+merge+Discord.
-4. Require **`SCRATCH`** for personal tools (`echo $SCRATCH`). Never put volatile SUMS logs or progress hadd under durable `rootfile/` as the primary store. Repo-root `log/` / `err/` are legacy paths and may be absent; personal SUMS log/err live under `$SCRATCH/star-analyzer/<anaName>/sums_{log,err}/`.
+4. Personal tools default **`SCRATCH=/tmp/rjsaito`** if unset (override with `SCRATCH=...`). Never put volatile SUMS logs or progress hadd under durable `rootfile/` as the primary store. Repo-root `log/` / `err/` are legacy paths and may be absent; personal SUMS log/err live under `$SCRATCH/star-analyzer/<anaName>/sums_{log,err}/`.
 5. Scope Condor / Discord / PID / scratch state by **`<anaName>/<jobid>`** (32-hex JOBID from that submit). Never treat “all my Condor jobs empty” as completion for one submit.
 6. Progress hadd must **only read** subjob ROOT under `rootfile/`; write only under `$SCRATCH/.../progress/`.
 7. Discord / PDF failures are **soft** (log and continue); final merge success is independent.
@@ -49,6 +49,6 @@ Any task involving batch submit, watch-merge, Discord notify, progress PDF, or
 ## Re-attach watcher (existing job)
 
 ```bash
-SCRATCH=${SCRATCH:?} ./local/watch_job_and_merge_mine.sh \
+./local/watch_job_and_merge_mine.sh \
   --runmeta job/run/runmeta/runmeta_<anaName>_<jobid>.json
 ```

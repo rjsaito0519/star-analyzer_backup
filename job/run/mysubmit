@@ -24,7 +24,8 @@ Personal wrapper around job/run/submit.sh:
   - Submits via official ./submit.sh (without --watch-merge)
   - Starts local/watch_job_and_merge_mine.sh (merge -> PDF -> Discord)
 
-Requires SCRATCH (echo $SCRATCH). Optional: $PROJECT_ROOT/.discord_webhook
+SCRATCH defaults to /tmp/rjsaito if unset (override with SCRATCH=...).
+Optional: $PROJECT_ROOT/.discord_webhook
 
 Scratch layout:
   $SCRATCH/star-analyzer/<anaName>/sums_log|sums_err/   # SUMS stdout/stderr
@@ -41,7 +42,9 @@ die() {
 [[ "$1" != "-h" && "$1" != "--help" ]] || { usage; exit 0; }
 [[ $# -eq 1 ]] || die "only a joblist path is accepted (got $# args)"
 
-[[ -n "${SCRATCH:-}" ]] || die "SCRATCH is unset; run: echo \$SCRATCH"
+SCRATCH="${SCRATCH:-/tmp/rjsaito}"
+mkdir -p "$SCRATCH" || die "cannot create SCRATCH=$SCRATCH"
+export SCRATCH
 [[ -n "$PYTHON" ]] || die "python3/python is required"
 [[ -x "$JOB_RUN_DIR/submit.sh" ]] || die "official submit.sh not found: $JOB_RUN_DIR/submit.sh"
 [[ -f "$WATCHER" ]] || die "personal watcher not found: $WATCHER"
@@ -67,6 +70,7 @@ mkdir -p "$LOG_DIR" "$ERR_DIR" "$STAGE_DIR"
 # Must keep joblist_<anaName>.xml naming: official submit.sh derives anaName from basename.
 TEMP_JOBLIST="$STAGE_DIR/joblist_${ANA_NAME}.xml"
 
+echo "mysubmit: SCRATCH=$SCRATCH"
 echo "mysubmit: anaName=$ANA_NAME"
 echo "mysubmit: SUMS log=$LOG_DIR"
 echo "mysubmit: SUMS err=$ERR_DIR"
