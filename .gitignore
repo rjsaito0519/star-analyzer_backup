@@ -115,3 +115,34 @@ script/getfile/
 
 # Local femto CF fit macros (experimental; source in share/femtocalc)
 common/macro/etc/
+# --- star-analyzer-backup secret gates ---
+# Secrets and local-only (never publish to star-analyzer_backup)
+.discord_webhook
+**/.discord_webhook
+**/.condor_discord_webhook
+**/config.env
+mytool/star_analyzer_backup/.discord_webhook
+mytool/star_analyzer_backup/config.env
+mytool/condor_monitor/.condor_discord_webhook
+
+# Editor / temp
+*~
+*.sw[op]
+\#*#
+
+# Build / data (defense in depth if rsync misses)
+lib/
+rootfile/
+share/
+log/
+err/
+backup/
+.cursor/
+*.root
+*.so
+*.pcm
+*.o
+*.dylib
+*.pdf
+*.log
+*.out

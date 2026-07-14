@@ -63,9 +63,20 @@ ensure_dest_gitignore() {
     log "WARN: gitignore template not found: $GITIGNORE_TEMPLATE"
     return
   fi
+  # SRC .gitignore is synced; append secret/data gates after every sync.
+  local marker="# --- star-analyzer-backup secret gates ---"
   if [[ ! -f "$DEST/.gitignore" ]]; then
     cp "$GITIGNORE_TEMPLATE" "$DEST/.gitignore"
     log "INIT: installed $DEST/.gitignore"
+    return
+  fi
+  if ! grep -Fq "$marker" "$DEST/.gitignore" 2>/dev/null; then
+    {
+      echo ""
+      echo "$marker"
+      cat "$GITIGNORE_TEMPLATE"
+    } >>"$DEST/.gitignore"
+    log "INIT: appended secret gates to $DEST/.gitignore"
   fi
 }
 
@@ -203,6 +214,13 @@ do_backup() {
     sync_status="rsync failed"
     log "ERROR: rsync failed"
   else
+    ensure_dest_gitignore
+    # Drop any previously synced secrets from the index (ignore quietly if absent).
+    git -C "$DEST" rm -r --cached -f --ignore-unmatch \
+      -- '.discord_webhook' '**/.discord_webhook' '**/.condor_discord_webhook' \
+      '**/config.env' 'mytool/star_analyzer_backup/config.env' \
+      >/dev/null 2>&1 || true
+
     if [[ "$files_changed" -eq 0 ]]; then
       sync_status="synced (no file changes)"
       log "OK: rsync completed, no file changes detected"
@@ -219,7 +237,7 @@ do_backup() {
       git commit -m "$commit_msg" --quiet
       committed=true
       commit_hash="$(git rev-parse --short HEAD)"
-      commit_summary="$(git show --stat --format='%s' -1 HEAD 2>/dev/null | tail -n +2 | head -5)"
+      commit_summary="$(git show --stat --format='%s' -1 HEAD 2>/dev/null | tail -n +2 | head -5 || true)"
       run_summary="new commit created (local only)"
       log "COMMIT: $commit_hash $commit_msg"
     else
@@ -227,7 +245,7 @@ do_backup() {
       log "OK: no changes to commit"
       if git rev-parse --short HEAD >/dev/null 2>&1; then
         last_commit_hash="$(git rev-parse --short HEAD)"
-        last_commit_summary="$(git show --stat --format='%s' -1 HEAD 2>/dev/null | tail -n +2 | head -5)"
+        last_commit_summary="$(git show --stat --format='%s' -1 HEAD 2>/dev/null | tail -n +2 | head -5 || true)"
       fi
     fi
 

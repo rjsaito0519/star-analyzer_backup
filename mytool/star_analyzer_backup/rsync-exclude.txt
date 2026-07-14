@@ -3,6 +3,7 @@
 .git/**
 .discord_webhook
 **/.discord_webhook
+**/.condor_discord_webhook
 **/config.env
 .current_mainconf
 .cursor
@@ -21,9 +22,9 @@ err/
 err/**
 backup/
 backup/**
+tmp_Nuclear_id
 tmp_Nuclear_id/
 tmp_Nuclear_id/**
-
 # Binary / build patterns
 *.root
 *.so
