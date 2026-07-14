@@ -8,7 +8,8 @@ Cursor loads a thin always-on pointer at `.cursor/rules/personal-local-ops.mdc` 
 
 ## Requirements
 
-- `SCRATCH` defaults to `/tmp/rjsaito` if unset (`SCRATCH=...` to override)
+- Volatile root defaults to **`$PROJECT_ROOT/scratch`** (shared GPFS). `/tmp/...` is refused (Condor cannot see submit-host `/tmp`).
+- Override: `STAR_ANALYZER_SCRATCH=...` (or `SCRATCH=...` for compat). This is **not** SUMS worker `$SCRATCH`.
 - Optional Discord webhook file at repo root: `.discord_webhook` (single URL line)
 - `condor_q` available for queue progress (falls back to ROOT file counts if missing)
 - `hadd` for hourly progress merges
@@ -40,20 +41,20 @@ cd job/run
 ## Scratch layout
 
 ```
-$SCRATCH/star-analyzer/
+scratch/                          # $PROJECT_ROOT/scratch (git-excluded)
   <anaName>/
-    sums_log/                 # SUMS stdout.$JOBID_N.out (stable path for Condor)
-    sums_err/                 # SUMS stderr.$JOBID_N.err
+    sums_log/                     # SUMS stdout.$JOBID_N.out (stable path for Condor)
+    sums_err/                     # SUMS stderr.$JOBID_N.err
     <jobid>/
-      watch/                  # watchmerge_mine.log, pid, discord_message_id, condor set
-      progress/               # partial_merge.root, progress/final PDFs
-      log/sums_log -> ...     # convenience symlink
+      watch/                      # watchmerge_mine.log, pid, discord_message_id, condor set
+      progress/                   # partial_merge.root, progress/final PDFs
+      log/sums_log -> ...         # convenience symlink
       err/sums_err -> ...
 ```
 
-Durable (not moved to SCRATCH): `rootfile/`, `job/run/runmeta/`, configlog, joblistlog.
+Durable (not under `scratch/`): `rootfile/`, `job/run/runmeta/`, configlog, joblistlog.
 
-Repo-root `log/` / `err/` were the **old** SUMS stdout/stderr location; they may be deleted (cleanup done). Prefer `$SCRATCH/.../sums_{log,err}/` via `mysubmit`. Official `./submit.sh` with an unrebased joblist can recreate repo `log/`/`err/` if those paths are still in the XML.
+Repo-root `log/` / `err/` were the **old** SUMS stdout/stderr location; they may be deleted (cleanup done). Prefer `scratch/<anaName>/sums_{log,err}/` via `mysubmit`. Official `./submit.sh` with an unrebased joblist can recreate repo `log/`/`err/` if those paths are still in the XML.
 
 ## Behaviour
 

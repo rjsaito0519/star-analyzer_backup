@@ -48,9 +48,10 @@ Options:
   --exclude-bad-roots LIST Pass --exclude-list to merge_root_files.csh
   -h, --help               Show this help
 
-SCRATCH defaults to /tmp/rjsaito if unset (override with SCRATCH=...).
-Volatile outputs under:
-  $SCRATCH/star-analyzer/<anaName>/<jobid>/{watch,progress,log,err}
+Volatile root defaults to $PROJECT_ROOT/scratch (shared FS; /tmp refused).
+Override: STAR_ANALYZER_SCRATCH=... (or SCRATCH=... for compat).
+Not the same as SUMS worker $SCRATCH. Layout:
+  scratch/<anaName>/<jobid>/{watch,progress,log,err}
 EOF
 }
 
@@ -64,14 +65,23 @@ die() {
 }
 
 require_scratch() {
-  SCRATCH="${SCRATCH:-/tmp/rjsaito}"
-  mkdir -p "$SCRATCH" || die "cannot create SCRATCH=$SCRATCH"
+  local root="${STAR_ANALYZER_SCRATCH:-${SCRATCH:-$PROJECT_ROOT/scratch}}"
+  case "$root" in
+    /tmp|/tmp/*)
+      die "volatile root must be a shared FS (not under /tmp): $root — use default scratch/ or STAR_ANALYZER_SCRATCH=..."
+      ;;
+  esac
+  mkdir -p "$root" || die "cannot create volatile root=$root"
+  STAR_ANALYZER_SCRATCH="$(cd "$root" && pwd)"
+  export STAR_ANALYZER_SCRATCH
+  # Compat for any leftover SCRATCH refs in this script.
+  SCRATCH="$STAR_ANALYZER_SCRATCH"
   export SCRATCH
 }
 
 scratch_base_for() {
   local ana="$1" jid="$2"
-  echo "${SCRATCH}/star-analyzer/${ana}/${jid}"
+  echo "${STAR_ANALYZER_SCRATCH}/${ana}/${jid}"
 }
 
 read_runmeta_field() {

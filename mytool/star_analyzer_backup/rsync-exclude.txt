@@ -20,6 +20,8 @@ log/
 log/**
 err/
 err/**
+scratch/
+scratch/**
 backup/
 backup/**
 tmp_Nuclear_id

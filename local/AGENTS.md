@@ -10,7 +10,7 @@ Human usage summary: [`README.md`](README.md).
 ## When this applies
 
 Any task involving batch submit, watch-merge, Discord notify, progress PDF, or
-`$SCRATCH` job artifacts for **this user’s personal workflow**.
+repo-`scratch/` job artifacts for **this user’s personal workflow**.
 
 ## Defaults (personal vs official)
 
@@ -20,8 +20,8 @@ Any task involving batch submit, watch-merge, Discord notify, progress PDF, or
 | Watch/merge | optional `--watch-merge` → `script/watch_job_and_merge.sh` | always; `local/watch_job_and_merge_mine.sh` |
 | Progress | ROOT count only | Condor δ (this JOBID) + ROOT count |
 | Notify / PDF | not in official watcher | Discord overwrite + checkHist PDF |
-| SUMS log/err | paths in joblist (often repo `log/`/`err/`) | `$SCRATCH/star-analyzer/<anaName>/sums_{log,err}/` |
-| Progress hadd/PDF | n/a | `$SCRATCH/.../<jobid>/progress/` (read-only vs `rootfile/`) |
+| SUMS log/err | paths in joblist (often repo `log/`/`err/`) | `scratch/<anaName>/sums_{log,err}/` |
+| Progress hadd/PDF | n/a | `scratch/<anaName>/<jobid>/progress/` (read-only vs `rootfile/`) |
 | Ignore personal paths | `.gitignore` (shared) | `.git/info/exclude` only |
 
 ## Hard rules for agents
@@ -29,9 +29,9 @@ Any task involving batch submit, watch-merge, Discord notify, progress PDF, or
 1. **Do not modify** official `job/run/submit.sh` or `script/watch_job_and_merge.sh` for personal features.
 2. **Do not put personal ignore rules in `.gitignore`**. Use `.git/info/exclude`.
 3. Prefer **`./job/run/mysubmit <joblist_<anaName>.xml>`** when the user wants personal submit+merge+Discord.
-4. Personal tools default **`SCRATCH=/tmp/rjsaito`** if unset (override with `SCRATCH=...`). Never put volatile SUMS logs or progress hadd under durable `rootfile/` as the primary store. Repo-root `log/` / `err/` are legacy paths and may be absent; personal SUMS log/err live under `$SCRATCH/star-analyzer/<anaName>/sums_{log,err}/`.
+4. Personal volatile root defaults to **`$PROJECT_ROOT/scratch`** (shared FS). Override with `STAR_ANALYZER_SCRATCH=...`. **Refuse `/tmp/...`** (Condor HoldReasonCode 7). Not the same as SUMS worker `$SCRATCH`. Never put volatile SUMS logs or progress hadd under durable `rootfile/` as the primary store. Layout: `scratch/<anaName>/sums_{log,err}/` and `scratch/<anaName>/<jobid>/...`.
 5. Scope Condor / Discord / PID / scratch state by **`<anaName>/<jobid>`** (32-hex JOBID from that submit). Never treat “all my Condor jobs empty” as completion for one submit.
-6. Progress hadd must **only read** subjob ROOT under `rootfile/`; write only under `$SCRATCH/.../progress/`.
+6. Progress hadd must **only read** subjob ROOT under `rootfile/`; write only under `scratch/.../progress/`.
 7. Discord / PDF failures are **soft** (log and continue); final merge success is independent.
 8. Optional mysubmit webhook: repo-root `.discord_webhook` (excluded; never commit).
 9. Personal tree backup: [`../mytool/star_analyzer_backup/`](../mytool/star_analyzer_backup/) (`backup.sh` → DEST commit; `push_backup.sh` manual; hourly loop via `tmux_start.sh` / `tmux_stop.sh` / `monitor.sh`). Uses **separate** webhook file `mytool/star_analyzer_backup/.discord_webhook` (not the mysubmit one). Do not mix into the shared star-analyzer remote.
@@ -41,9 +41,10 @@ Any task involving batch submit, watch-merge, Discord notify, progress PDF, or
 
 - Entry: `job/run/mysubmit`
 - Watcher: `local/watch_job_and_merge_mine.sh`
+- Volatile: `scratch/` (excluded)
 - Backup: `mytool/star_analyzer_backup/` (DEST `/gpfs01/star/pwg/rjsaito/backup/star-analyzer` → `star-analyzer_backup.git`)
 - Docs: `local/README.md`, this file
-- Exclude: `.git/info/exclude` (`local/`, `job/run/mysubmit`, `.discord_webhook`, `*.wip.bak`, `mytool`, …)
+- Exclude: `.git/info/exclude` (`local/`, `job/run/mysubmit`, `scratch/`, `.discord_webhook`, `*.wip.bak`, `mytool`, …)
 - Retired WIP: `backup/*.wip.bak` (not source of truth)
 
 ## Re-attach watcher (existing job)

@@ -1,6 +1,7 @@
 #!/bin/bash
 # Personal submit entry: official submit.sh (no --watch-merge) + personal watcher.
-# Volatile SUMS stdout/stderr and watcher logs go under $SCRATCH/star-analyzer/.
+# Volatile SUMS stdout/stderr and watcher logs go under $PROJECT_ROOT/scratch/
+# (shared FS). Not the same as SUMS job-local $SCRATCH on workers.
 #
 # Usage (any cwd):
 #   ./job/run/mysubmit ../joblist/joblist_<anaName>.xml
@@ -19,17 +20,18 @@ usage() {
 Usage: mysubmit <joblist.xml>
 
 Personal wrapper around job/run/submit.sh:
-  - Rewrites stdout/stderr to $SCRATCH/star-analyzer/<anaName>/sums_{log,err}/
+  - Rewrites stdout/stderr to scratch/<anaName>/sums_{log,err}/
     (stable dirs so Condor keeps writing after jobid is known)
   - Submits via official ./submit.sh (without --watch-merge)
   - Starts local/watch_job_and_merge_mine.sh (merge -> PDF -> Discord)
 
-SCRATCH defaults to /tmp/rjsaito if unset (override with SCRATCH=...).
-Optional: $PROJECT_ROOT/.discord_webhook
+Volatile root defaults to $PROJECT_ROOT/scratch (shared FS; /tmp is refused).
+Override: STAR_ANALYZER_SCRATCH=... (or SCRATCH=... for compat).
+Not the same as SUMS worker $SCRATCH. Optional: $PROJECT_ROOT/.discord_webhook
 
 Scratch layout:
-  $SCRATCH/star-analyzer/<anaName>/sums_log|sums_err/   # SUMS stdout/stderr
-  $SCRATCH/star-analyzer/<anaName>/<jobid>/{watch,progress}/
+  scratch/<anaName>/sums_log|sums_err/   # SUMS stdout/stderr
+  scratch/<anaName>/<jobid>/{watch,progress}/
 EOF
 }
 
@@ -38,13 +40,24 @@ die() {
   exit 1
 }
 
+resolve_volatile_root() {
+  local root="${STAR_ANALYZER_SCRATCH:-${SCRATCH:-$PROJECT_ROOT/scratch}}"
+  case "$root" in
+    /tmp|/tmp/*)
+      die "volatile root must be a shared FS (not under /tmp): $root — use default scratch/ or STAR_ANALYZER_SCRATCH=..."
+      ;;
+  esac
+  mkdir -p "$root" || die "cannot create volatile root=$root"
+  (cd "$root" && pwd)
+}
+
 [[ $# -ge 1 ]] || { usage >&2; exit 1; }
 [[ "$1" != "-h" && "$1" != "--help" ]] || { usage; exit 0; }
 [[ $# -eq 1 ]] || die "only a joblist path is accepted (got $# args)"
 
-SCRATCH="${SCRATCH:-/tmp/rjsaito}"
-mkdir -p "$SCRATCH" || die "cannot create SCRATCH=$SCRATCH"
-export SCRATCH
+VOLATILE="$(resolve_volatile_root)"
+export STAR_ANALYZER_SCRATCH="$VOLATILE"
+# Do not export SCRATCH here — avoid polluting SUMS with personal volatile root.
 [[ -n "$PYTHON" ]] || die "python3/python is required"
 [[ -x "$JOB_RUN_DIR/submit.sh" ]] || die "official submit.sh not found: $JOB_RUN_DIR/submit.sh"
 [[ -f "$WATCHER" ]] || die "personal watcher not found: $WATCHER"
@@ -62,7 +75,7 @@ ANA_NAME="${base#joblist_}"
 ANA_NAME="${ANA_NAME%.xml}"
 [[ -n "$ANA_NAME" ]] || die "could not parse anaName from $base"
 
-ANA_SCRATCH="${SCRATCH}/star-analyzer/${ANA_NAME}"
+ANA_SCRATCH="${VOLATILE}/${ANA_NAME}"
 LOG_DIR="${ANA_SCRATCH}/sums_log"
 ERR_DIR="${ANA_SCRATCH}/sums_err"
 STAGE_DIR="${ANA_SCRATCH}/_mysubmit_$$"
@@ -70,11 +83,11 @@ mkdir -p "$LOG_DIR" "$ERR_DIR" "$STAGE_DIR"
 # Must keep joblist_<anaName>.xml naming: official submit.sh derives anaName from basename.
 TEMP_JOBLIST="$STAGE_DIR/joblist_${ANA_NAME}.xml"
 
-echo "mysubmit: SCRATCH=$SCRATCH"
+echo "mysubmit: STAR_ANALYZER_SCRATCH=$VOLATILE"
 echo "mysubmit: anaName=$ANA_NAME"
 echo "mysubmit: SUMS log=$LOG_DIR"
 echo "mysubmit: SUMS err=$ERR_DIR"
-echo "mysubmit: rewriting stdout/stderr -> SCRATCH"
+echo "mysubmit: rewriting stdout/stderr -> shared scratch"
 
 "$PYTHON" - "$JOBLIST_IN" "$TEMP_JOBLIST" "$LOG_DIR" "$ERR_DIR" <<'PY'
 import re
@@ -112,7 +125,8 @@ echo "mysubmit: calling official submit.sh (no --watch-merge)"
 set +e
 (
   cd "$JOB_RUN_DIR"
-  ./submit.sh "$TEMP_JOBLIST" 2>&1 | tee "$SUBMIT_OUT"
+  # Unset personal SCRATCH so SUMS does not inherit the volatile root.
+  env -u SCRATCH ./submit.sh "$TEMP_JOBLIST" 2>&1 | tee "$SUBMIT_OUT"
   exit "${PIPESTATUS[0]}"
 )
 submit_rc=$?
@@ -152,7 +166,7 @@ done
 [[ -f "$RUNMETA" ]] || die "runmeta not found after submit: $RUNMETA"
 
 WATCH_LOG="$FINAL_DIR/watch/watchmerge_mine.log"
-nohup "$WATCHER" --runmeta "$RUNMETA" >> "$WATCH_LOG" 2>&1 &
+nohup env STAR_ANALYZER_SCRATCH="$VOLATILE" "$WATCHER" --runmeta "$RUNMETA" >> "$WATCH_LOG" 2>&1 &
 watch_pid=$!
 echo "mysubmit: personal watcher started (PID $watch_pid)"
 echo "mysubmit: watcher log: $WATCH_LOG"
