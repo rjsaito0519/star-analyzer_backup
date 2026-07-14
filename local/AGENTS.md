@@ -29,7 +29,7 @@ repo-`scratch/` job artifacts for **this user’s personal workflow**.
 1. **Do not modify** official `job/run/submit.sh` or `script/watch_job_and_merge.sh` for personal features.
 2. **Do not put personal ignore rules in `.gitignore`**. Use `.git/info/exclude`.
 3. Prefer **`./job/run/mysubmit <joblist_<anaName>.xml>`** when the user wants personal submit+merge+Discord.
-4. Personal volatile root defaults to **`$PROJECT_ROOT/scratch`** (shared FS). Override with `STAR_ANALYZER_SCRATCH=...`. **Refuse `/tmp/...`** (Condor HoldReasonCode 7). Not the same as SUMS worker `$SCRATCH`. Never put volatile SUMS logs or progress hadd under durable `rootfile/` as the primary store. Layout: `scratch/<anaName>/sums_{log,err}/` and `scratch/<anaName>/<jobid>/...`.
+4. Personal volatile root is **`$PROJECT_ROOT/scratch`**. Do not use env `SCRATCH` for this (SUMS owns that name). Optional `STAR_ANALYZER_SCRATCH=...` must be shared FS; `/tmp` is ignored and falls back to `scratch/`. Never put volatile SUMS logs or progress hadd under durable `rootfile/`. Layout: `scratch/<anaName>/sums_{log,err}/` and `scratch/<anaName>/<jobid>/...`.
 5. Scope Condor / Discord / PID / scratch state by **`<anaName>/<jobid>`** (32-hex JOBID from that submit). Never treat “all my Condor jobs empty” as completion for one submit.
 6. Progress hadd must **only read** subjob ROOT under `rootfile/`; write only under `scratch/.../progress/`.
 7. Discord / PDF failures are **soft** (log and continue); final merge success is independent.

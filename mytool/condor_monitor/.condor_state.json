@@ -1,11 +1,11 @@
 {
-  "last_message_id": null,
+  "last_message_id": "1526627924004966472",
   "last_counts": {
-    "total": 0,
+    "total": 813,
     "completed": 0,
     "removed": 0,
     "idle": 0,
-    "running": 0,
+    "running": 813,
     "held": 0
   }
 }

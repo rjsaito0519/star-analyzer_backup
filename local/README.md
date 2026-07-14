@@ -8,8 +8,7 @@ Cursor loads a thin always-on pointer at `.cursor/rules/personal-local-ops.mdc` 
 
 ## Requirements
 
-- Volatile root defaults to **`$PROJECT_ROOT/scratch`** (shared GPFS). `/tmp/...` is refused (Condor cannot see submit-host `/tmp`).
-- Override: `STAR_ANALYZER_SCRATCH=...` (or `SCRATCH=...` for compat). This is **not** SUMS worker `$SCRATCH`.
+- Volatile root defaults to **`$PROJECT_ROOT/scratch`**. Env `SCRATCH` is ignored. Optional override: `STAR_ANALYZER_SCRATCH` (non-`/tmp` only; `/tmp` is ignored and falls back). Not SUMS worker `$SCRATCH`.
 - Optional Discord webhook file at repo root: `.discord_webhook` (single URL line)
 - `condor_q` available for queue progress (falls back to ROOT file counts if missing)
 - `hadd` for hourly progress merges

@@ -25,9 +25,9 @@ Personal wrapper around job/run/submit.sh:
   - Submits via official ./submit.sh (without --watch-merge)
   - Starts local/watch_job_and_merge_mine.sh (merge -> PDF -> Discord)
 
-Volatile root defaults to $PROJECT_ROOT/scratch (shared FS; /tmp is refused).
-Override: STAR_ANALYZER_SCRATCH=... (or SCRATCH=... for compat).
-Not the same as SUMS worker $SCRATCH. Optional: $PROJECT_ROOT/.discord_webhook
+Volatile root is always $PROJECT_ROOT/scratch unless STAR_ANALYZER_SCRATCH
+points at a non-/tmp path. Env SCRATCH is ignored (SUMS uses that name).
+Optional: $PROJECT_ROOT/.discord_webhook
 
 Scratch layout:
   scratch/<anaName>/sums_log|sums_err/   # SUMS stdout/stderr
@@ -41,12 +41,18 @@ die() {
 }
 
 resolve_volatile_root() {
-  local root="${STAR_ANALYZER_SCRATCH:-${SCRATCH:-$PROJECT_ROOT/scratch}}"
-  case "$root" in
-    /tmp|/tmp/*)
-      die "volatile root must be a shared FS (not under /tmp): $root — use default scratch/ or STAR_ANALYZER_SCRATCH=..."
-      ;;
-  esac
+  local default_root="$PROJECT_ROOT/scratch"
+  local root="$default_root"
+  if [[ -n "${STAR_ANALYZER_SCRATCH:-}" ]]; then
+    case "$STAR_ANALYZER_SCRATCH" in
+      /tmp|/tmp/*)
+        echo "mysubmit: WARN: ignoring STAR_ANALYZER_SCRATCH=$STAR_ANALYZER_SCRATCH (/tmp is not cluster-visible); using $default_root" >&2
+        ;;
+      *)
+        root="$STAR_ANALYZER_SCRATCH"
+        ;;
+    esac
+  fi
   mkdir -p "$root" || die "cannot create volatile root=$root"
   (cd "$root" && pwd)
 }

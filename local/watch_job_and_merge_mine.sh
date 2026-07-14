@@ -48,9 +48,9 @@ Options:
   --exclude-bad-roots LIST Pass --exclude-list to merge_root_files.csh
   -h, --help               Show this help
 
-Volatile root defaults to $PROJECT_ROOT/scratch (shared FS; /tmp refused).
-Override: STAR_ANALYZER_SCRATCH=... (or SCRATCH=... for compat).
-Not the same as SUMS worker $SCRATCH. Layout:
+Volatile root is always $PROJECT_ROOT/scratch unless STAR_ANALYZER_SCRATCH
+points at a non-/tmp path. Env SCRATCH is ignored (SUMS uses that name).
+Layout:
   scratch/<anaName>/<jobid>/{watch,progress,log,err}
 EOF
 }
@@ -65,18 +65,21 @@ die() {
 }
 
 require_scratch() {
-  local root="${STAR_ANALYZER_SCRATCH:-${SCRATCH:-$PROJECT_ROOT/scratch}}"
-  case "$root" in
-    /tmp|/tmp/*)
-      die "volatile root must be a shared FS (not under /tmp): $root — use default scratch/ or STAR_ANALYZER_SCRATCH=..."
-      ;;
-  esac
+  local default_root="$PROJECT_ROOT/scratch"
+  local root="$default_root"
+  if [[ -n "${STAR_ANALYZER_SCRATCH:-}" ]]; then
+    case "$STAR_ANALYZER_SCRATCH" in
+      /tmp|/tmp/*)
+        log_msg "WARN: ignoring STAR_ANALYZER_SCRATCH=$STAR_ANALYZER_SCRATCH (/tmp is not cluster-visible); using $default_root"
+        ;;
+      *)
+        root="$STAR_ANALYZER_SCRATCH"
+        ;;
+    esac
+  fi
   mkdir -p "$root" || die "cannot create volatile root=$root"
   STAR_ANALYZER_SCRATCH="$(cd "$root" && pwd)"
   export STAR_ANALYZER_SCRATCH
-  # Compat for any leftover SCRATCH refs in this script.
-  SCRATCH="$STAR_ANALYZER_SCRATCH"
-  export SCRATCH
 }
 
 scratch_base_for() {
