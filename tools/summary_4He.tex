@@ -1,0 +1,166 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{graphicx}
+\usepackage{geometry}
+\usepackage{amsmath}
+\usepackage{hyperref}
+\geometry{top=2.5cm, bottom=2.5cm, left=2.5cm, right=2.5cm}
+
+\title{Detailed Summary of $\Lambda$-$^{4}\mathrm{He}$ Analysis Updates}
+\author{Antigravity IDE}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section{Overview of Updates}
+This document provides a detailed summary of the recent modifications to the $\Lambda$-$^{4}\mathrm{He}$ correlation analysis macros in the \texttt{star-analyzer} repository. The major updates include:
+\begin{enumerate}
+    \item \textbf{Input Data Update}: Switched to \texttt{...\_all\_LambdaImprove\_WideSide.root}.
+    \item \textbf{Signal and Sideband Definition (WideSide)}: The $\Lambda$ signal region is explicitly defined as $\pm 3\sigma$ around the invariant mass peak. The sideband region was expanded from $3\sigma \sim 6\sigma$ to $3\sigma \sim 12\sigma$. A scale factor of $1/3$ is applied to the sideband histograms after \texttt{Sumw2()} to correctly normalize the wider background.
+    \item \textbf{Fixed S/N Ratio in CFsub}: The Signal-to-Noise (SN) ratio is now fixed to $5.217$, leading to a constant purity $P = \frac{SN}{SN+1} \approx 0.839$.
+\end{enumerate}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.6\textwidth, page=1]{../rootfile/auau13p5_anaLambdaNuclearId/pdf/Lambda_InvMass.pdf}
+    \caption{Invariant mass distribution of $\Lambda$. The sideband ranges are explicitly expanded to cover up to $\pm 12\sigma$.}
+\end{figure}
+\clearpage
+
+\section{Analysis Methodologies}
+
+\subsection{Bin-by-Bin vs. Centrality Group Calculation}
+The analysis is performed using two different centrality merging approaches:
+\begin{itemize}
+    \item \textbf{Standard Bin-by-Bin Calculation (\texttt{relamom.C})}: The correlation function is calculated independently for each fine centrality bin (e.g., 0-5\%, 5-10\%, 10-20\%, etc.). While detailed, this suffers from significant statistical fluctuations in bins with few $\Lambda$-$^{4}\mathrm{He}$ pairs.
+    \item \textbf{Group Calculation (\texttt{relamom\_sum.C})}: The raw $k^*$ histograms (True and Mixed) from several centrality bins are \textit{summed} together into broader groups (e.g., 0-20\%, 20-80\%) \textit{before} the correlation function is constructed. This greatly enhances the statistics per $k^*$ bin, yielding a much smoother and physically robust correlation function.
+\end{itemize}
+
+\subsection{Background Subtraction: SB-Subtraction vs. CF-Subtraction (Purity Correction)}
+Another major methodological difference is how the background (Sideband) is removed.
+
+\textbf{1. Sideband Subtraction (SB-Sub)}:
+In the standard method, the raw Sideband $k^*$ distributions are directly subtracted from the Signal Window $k^*$ distributions:
+\begin{equation}
+    CF_{SB}(k^*) = \frac{True_{sig}(k^*) - True_{SB}(k^*)}{Mix_{sig}(k^*) - Mix_{SB}(k^*)}
+\end{equation}
+This assumes the kinematic shape of the sideband pairs perfectly mimics the background under the signal peak. If they differ slightly, subtracting raw counts can create unphysical distortions or negative bins in the denominator ($Mix_{sig} - Mix_{SB}$).
+
+\textbf{2. CF-Subtraction (Constant Purity)}:
+Instead of subtracting raw counts, this method computes the Correlation Functions for the signal window and the sideband independently, and then subtracts the correlations weighted by the purity $P$:
+\begin{equation}
+    CF_{corrected}(k^*) = \frac{CF_{sig}(k^*) - (1-P) \cdot CF_{SB}(k^*)}{P}
+\end{equation}
+Because the CF is a ratio ($True/Mixed$), it naturally cancels out raw kinematic phase-space differences. This method relies on the much safer assumption that the \textit{correlation behavior} (e.g., Coulomb/strong interactions) of the sideband background is similar to that of the background under the peak. Furthermore, fixing the SN ratio ($P=0.839$) prevents bin-by-bin statistical fluctuations in the background integral from destabilizing the correction.
+
+\subsection{Error Propagation and Methodological Assumptions}
+In both methods, ROOT correctly tracks the statistical errors by summing the squares of the weights (\texttt{Sumw2()}). 
+However, the way errors propagate and the underlying assumptions differ significantly:
+
+\textbf{Error Propagation in SB-Subtraction:}
+Errors add in quadrature during the direct subtraction: $\delta True_{sub} = \sqrt{(\delta True_{sig})^2 + (\delta True_{SB})^2}$. 
+Because we expanded the sideband region to be 3 times wider and scale the counts by $1/3$, the statistical error on the background ($\delta True_{SB}$) is reduced by a factor of $\sqrt{3}$, suppressing background fluctuations.
+However, if $Mix_{sig}$ and $Mix_{SB}$ are close in value, the denominator $Mix_{sig} - Mix_{SB}$ becomes very small, which can enormously inflate the relative error $\left( \frac{\delta Mix_{sub}}{Mix_{sub}} \right)^2$ or even result in unphysical negative bins.
+
+\textbf{Error Propagation in CF-Subtraction:}
+The final error is given by $\delta CF_{corrected} = \frac{\sqrt{(\delta CF_{sig})^2 + (1-P)^2 (\delta CF_{SB})^2}}{P}$.
+Because we are dividing by the purity ($P \approx 0.839$), the overall statistical error bars on the final CF points are slightly magnified by a factor of $1/P$.
+However, because $P$ is fixed as a constant, we eliminate the huge uncertainties that would arise if we estimated $P$ bin-by-bin.
+
+\textbf{Which method is better?}
+From a purely \textit{statistical} standpoint, the SB-subtraction might seem to yield smaller error bars in high-statistics regions, but it suffers from severe instability (divisions by near-zero) in the denominator where phase-space mismatch occurs.
+The CF-Subtraction method is far superior from a \textit{systematic} and stability standpoint. By taking the ratio $True/Mix$ first, it avoids subtracting large, similarly-sized raw counts in the denominator. The CF-subtraction method accepts a slightly larger formal statistical error (due to $1/P$) in exchange for drastically reducing the \textbf{systematic errors} caused by phase-space mismatches between the Sideband and Signal regions.
+
+\clearpage
+\section{Step-by-Step Visualization of the Standard (SB-Subtraction) Method}
+To understand the standard method, we show the intermediate steps from the Grouped calculation (\texttt{draw\_LambdaNuclearId\_relamom\_sum.C}) for the 0-20\% centrality group.
+
+\begin{figure}[h]
+    \centering
+    \begin{minipage}{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth, page=3]{../rootfile/auau13p5_anaLambdaNuclearId/pdf/kstar_sum_4He.pdf}
+        \caption{Step 1: Raw True $k^*$ distributions compared between Signal Window (black) and Sidebands (color).}
+    \end{minipage}\hfill
+    \begin{minipage}{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth, page=4]{../rootfile/auau13p5_anaLambdaNuclearId/pdf/kstar_sum_4He.pdf}
+        \caption{Step 2: Raw Mixed $k^*$ distributions compared between Signal Window (red) and Sidebands (color).}
+    \end{minipage}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \begin{minipage}{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth, page=5]{../rootfile/auau13p5_anaLambdaNuclearId/pdf/kstar_sum_4He.pdf}
+        \caption{Step 3: Background-subtracted distributions ($True_{sig} - True_{SB}$ and $Mix_{sig} - Mix_{SB}$).}
+    \end{minipage}\hfill
+    \begin{minipage}{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth, page=6]{../rootfile/auau13p5_anaLambdaNuclearId/pdf/kstar_sum_4He.pdf}
+        \caption{Step 4: Final SB-Subtracted CF, obtained by dividing the subtracted True by the subtracted Mixed distribution.}
+    \end{minipage}
+\end{figure}
+
+\clearpage
+\section{Step-by-Step Visualization of the CF-Subtraction Method}
+To clearly understand what is being calculated, the intermediate steps from the Grouped CF-Subtraction macro (\texttt{draw\_LambdaNuclearId\_relamom\_sum\_CFsub.C}) for the 0-20\% centrality group are shown below.
+
+\begin{figure}[h]
+    \centering
+    \begin{minipage}{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth, page=1]{../rootfile/auau13p5_anaLambdaNuclearId/pdf/kstar_sum_CFsub_4He.pdf}
+        \caption{Step 1: Raw True and Mixed $k^*$ distributions in the Signal Window.}
+    \end{minipage}\hfill
+    \begin{minipage}{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth, page=2]{../rootfile/auau13p5_anaLambdaNuclearId/pdf/kstar_sum_CFsub_4He.pdf}
+        \caption{Step 2: $CF_{sig}$ (True/Mixed) in the Signal Window.}
+    \end{minipage}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \begin{minipage}{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth, page=3]{../rootfile/auau13p5_anaLambdaNuclearId/pdf/kstar_sum_CFsub_4He.pdf}
+        \caption{Step 3: True $k^*$ distributions compared between Signal Window (black) and Sidebands (color).}
+    \end{minipage}\hfill
+    \begin{minipage}{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth, page=5]{../rootfile/auau13p5_anaLambdaNuclearId/pdf/kstar_sum_CFsub_4He.pdf}
+        \caption{Step 4: Comparison of $CF_{sig}$ and $CF_{SB}$. The background CF is relatively flat compared to the signal.}
+    \end{minipage}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.55\textwidth, page=6]{../rootfile/auau13p5_anaLambdaNuclearId/pdf/kstar_sum_CFsub_4He.pdf}
+    \caption{Step 5: Final Purity-Corrected CF. The background correlation ($CF_{SB}$) has been subtracted using the fixed purity ($P \approx 0.839$).}
+\end{figure}
+
+\clearpage
+\section{Lednicky-Lyuboshits Fitting Results}
+The final corrected correlation functions (from the Group Calculation) are fitted using the Lednicky-Lyuboshits analytical model. We compare the fit results between the two background subtraction methods. The newly created macro \texttt{Fit\_LambdaNuclearId\_relamom\_sum\_CFsub.C} handles the CF-Subtraction fit.
+
+\begin{figure}[h]
+    \centering
+    \begin{minipage}{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth, page=1]{../rootfile/auau13p5_anaLambdaNuclearId/pdf/Fit_LL_4He.pdf}
+        \caption{LL Fit on SB-Subtracted CF.}
+    \end{minipage}\hfill
+    \begin{minipage}{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth, page=1]{../rootfile/auau13p5_anaLambdaNuclearId/pdf/Fit_LL_CFsub_4He.pdf}
+        \caption{LL Fit on Purity-Corrected (CFsub) CF.}
+    \end{minipage}
+\end{figure}
+
+\textbf{Why do the fit results differ?}\\
+The source radii ($R$) and fit quality ($\chi^2$/ndf) differ between the two methods because they treat the background phase space differently. The direct raw subtraction (SB-Sub) often suffers from residual kinematic mismatch between the signal region and the sidebands, leading to artificial bumps or dips in the CF that skew the fit. The Purity-Corrected CF avoids these direct histogram subtractions by operating on the ratio ($True/Mix$), resulting in a correlation function that is less distorted by background kinematics. Consequently, the CF-Subtraction method (right) is generally more stable and theoretically robust for femtoscopic measurements.
+
+\end{document}

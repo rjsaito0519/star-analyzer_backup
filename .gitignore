@@ -1,0 +1,117 @@
+*.o
+*.so
+*.dylib
+*.pcm
+*.d
+CMakeCache.txt
+CMakeFiles/
+# Makefile
+cmake_install.cmake
+
+# binary 
+build/
+bin/
+*.cpp~
+
+# ROOT
+*.root
+rootfile
+
+others/
+# log,text
+*.log
+*.out
+*.pdf
+output/
+picodst
+log
+err
+output
+share
+
+# femto fit shared libs (built locally)
+common/macro/etc/libFemtoFit.so
+common/macro/etc/libCfExtractPhi4He.so
+common/macro/etc/libFitHistPhi4He.so
+common/macro/etc/fitHistPhi4He
+common/macro/etc/*_C.*
+
+# editor setting
+.vscode
+
+# system file
+.DS_Store
+
+# job/run: symlinks created by setup_symlinks.sh (do not track)
+job/run/StMaker
+job/run/analysis
+job/run/config
+job/run/include
+job/run/lib
+job/run/watchmerge/*
+job/run/joblog/*
+job/run/configlog/*
+job/run/joblistlog/*
+job/run/runmeta/*
+
+# job/run: SUMS job submission generated files (dataset, report, .list, .csh, .condor)
+job/run/*.dataset
+job/run/*.dataset.tmp
+job/run/*.report
+job/run/*.list
+job/run/*_*.condor
+job/run/*_*.csh
+job/run/*_*.list
+
+# legacy SUMS patterns (kept for reference)
+job/run/phi_analysis_run_ana*
+job/run/joblist_run_ana_Phi_forrun.xml
+
+# config/: backup files; picoDstList/*.list are user-specific (track only template YAMLs)
+config/*
+config/mainconf/
+!config/mainconf/mainconf.yaml
+config/**/*~
+config/picoDstList/*.list
+
+# script/: backup and editor temp (track only main scripts)
+script/**/*~
+script/#*#
+script/condor/
+
+# Backup and editor temp (anywhere)
+*~
+.*~
+#*#
+
+# Directories not under version control
+lib/*
+analysisnote/
+backup/
+docs/*
+!docs/ai/
+!docs/ai/**
+!docs/REFERENCE.md
+legacy/
+.agents
+
+# job: root-level xml, job_run_* template copies, generated joblists, and job/run xml
+job/*.xml
+job/joblist/job_run_*.xml
+job/joblist/joblist_*.xml
+job/run/*.xml
+
+# script: helper/legacy scripts (track only e.g. setup.sh, run_ana_Lambda.sh)
+script/check*.sh
+script/get_file_list_*.sh
+script/read*.sh
+script/run_ana_Phi.sh
+script/run_analyzePhi.sh
+script/job_template.xml
+script/getfile/
+
+# Current mainconf persistence
+.current_mainconf
+
+# Local femto CF fit macros (experimental; source in share/femtocalc)
+common/macro/etc/

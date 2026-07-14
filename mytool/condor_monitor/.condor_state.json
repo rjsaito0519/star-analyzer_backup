@@ -1,0 +1,11 @@
+{
+  "last_message_id": null,
+  "last_counts": {
+    "total": 0,
+    "completed": 0,
+    "removed": 0,
+    "idle": 0,
+    "running": 0,
+    "held": 0
+  }
+}

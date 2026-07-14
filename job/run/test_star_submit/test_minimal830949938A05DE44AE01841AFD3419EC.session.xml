@@ -1,0 +1,2169 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<java version="1.8.0_131" class="java.beans.XMLDecoder">
+ <object class="gov.bnl.star.offline.scheduler.request.Request" id="Request0">
+  <void property="ID">
+   <string>830949938A05DE44AE01841AFD3419EC</string>
+  </void>
+  <void property="authenticatedUser">
+   <string>oura@rhic.bnl.gov</string>
+  </void>
+  <void property="command">
+   <string>
+    echo &quot;Star-submit test OK at `date`&quot; &gt; $SCRATCH/test_result_$JOBID.txt &amp;&amp; echo &quot;Done&quot;
+  </string>
+  </void>
+  <void property="jobs">
+   <void method="add">
+    <object class="gov.bnl.star.offline.scheduler.Job" id="Job0">
+     <void property="accessMethod">
+      <object class="gov.bnl.star.offline.scheduler.AccessMethod" id="AccessMethod0">
+       <void property="accessPoints">
+        <void method="add">
+         <object class="gov.bnl.star.offline.scheduler.LocalAccessPoint" id="LocalAccessPoint0">
+          <void property="accessMethods">
+           <void method="add">
+            <object class="gov.bnl.star.offline.scheduler.AccessMethod" id="AccessMethod1">
+             <void property="accessPoints">
+              <void method="add">
+               <object idref="LocalAccessPoint0"/>
+              </void>
+             </void>
+             <void property="batchSystem">
+              <string>local</string>
+             </void>
+             <void property="dispatcher">
+              <object class="gov.bnl.star.offline.scheduler.Dispatchers.local.LocalDispatcher" id="LocalDispatcher0">
+               <void property="application">
+                <object class="gov.bnl.star.offline.scheduler.Dispatchers.CSHApplication" id="CSHApplication0">
+                 <void property="copyCommand">
+                  <string>/bin/cp (fromScratch) (toURL)</string>
+                 </void>
+                 <void property="copyScript">
+                  <string>copyURIs.pl</string>
+                 </void>
+                 <void property="envVariableLimit">
+                  <int>200</int>
+                 </void>
+                 <void property="gridCopyCommand">
+                  <string>
+# This loop solves the problem of not being able to use wild cards in the globus-url-copy command.
+# However the (toURL) area will need to be different for each pass of the loop as a destination file name must be specified. 
+# In this syntax the user must put the last slash on the “toURL” or else it will concatenate the last dir to the file name.
+cd $SCRATCH
+foreach file ((fromScratch))
+  globus-url-copy -p 25 file:$SCRATCH/$file gsiftp://(copyBackGateKeeper)(toURL)$file
+end 
+            </string>
+                 </void>
+                 <void property="helperScripts">
+                  <string>/star/data08/HRM/scripts/</string>
+                 </void>
+                 <void property="makeExecutableCommand">
+                  <string>/bin/chmod +x </string>
+                 </void>
+                 <void property="recurseCopy">
+                  <boolean>true</boolean>
+                 </void>
+                 <void property="recursiveCopyCommand">
+                  <string>    
+    ########### Copy Command Block ########### 
+         
+    rm -f $SCRATCH/count.$JOBID.test            
+    (/bin/ls (fromScratch) &gt; $SCRATCH/count.$JOBID.test) &gt;&amp; /dev/null
+    if ( -z $SCRATCH/count.$JOBID.test ) then               
+        echo &apos;Error: Scheduler could not find any files in $SCRATCH matching your &lt;output&gt; tag fromScratch value: (fromScratchNoMode) &apos;
+    else                      
+        echo &quot;Starting copy block&quot;
+        foreach file ( (fromScratch) )
+             set i=0
+
+             if ( -d $file ) then
+                set cpCommand=&quot;/bin/cp -r $file (toURL)&quot;
+             else
+                set cpCommand=&quot;/bin/cp -fp $file (toURL)&quot;
+             endif
+
+             RETRY_CP:
+             echo &quot;Running copy command: &quot; $cpCommand
+             $cpCommand
+             if ( $status &amp;&amp; $i &lt; 15 ) then
+                 echo &quot;The copy failed, waiting to try again.&quot;
+                 @ i++
+                 sleep 60
+                 echo &quot;Trying copy again at &quot;`/bin/date`
+                 goto RETRY_CP
+             endif
+        end
+        
+    endif
+    ##########################################
+            </string>
+                 </void>
+                 <void property="registerScript">
+                  <string>register_file.pl</string>
+                 </void>
+                 <void property="storageScript">
+                  <string>storageService.pl</string>
+                 </void>
+                </object>
+               </void>
+               <void property="maxAttempts">
+                <int>5</int>
+               </void>
+               <void property="msBtwnFailure">
+                <int>5000</int>
+               </void>
+               <void property="runInteractivelty">
+                <boolean>true</boolean>
+               </void>
+              </object>
+             </void>
+             <void property="queues">
+              <void method="add">
+               <object class="gov.bnl.star.offline.scheduler.Queue" id="Queue0">
+                <void property="ID">
+                 <string>Local_Queue</string>
+                </void>
+                <void property="accessMethods">
+                 <void method="add">
+                  <object idref="AccessMethod1"/>
+                 </void>
+                </void>
+                <void property="cluster">
+                 <string>local.local</string>
+                </void>
+                <void property="maxMemory">
+                 <int>500</int>
+                </void>
+                <void property="name">
+                 <string></string>
+                </void>
+                <void property="site">
+                 <string>STAR</string>
+                </void>
+                <void property="timeLimit">
+                 <int>500</int>
+                </void>
+                <void property="type">
+                 <string>local</string>
+                </void>
+               </object>
+              </void>
+             </void>
+            </object>
+           </void>
+           <void method="add">
+            <object class="gov.bnl.star.offline.scheduler.AccessMethod" id="AccessMethod2">
+             <void property="accessPoints">
+              <void method="add">
+               <object idref="LocalAccessPoint0"/>
+              </void>
+             </void>
+             <void property="dispatcher">
+              <object class="gov.bnl.star.offline.scheduler.Dispatchers.condorg.CondorFastDispatcher">
+               <void property="application">
+                <object idref="CSHApplication0"/>
+               </void>
+               <void property="condorOptions">
+                <string>+Job_Type       = &quot;eval&quot;
+kill_sig        = SIGINT</string>
+               </void>
+               <void property="maxAttempts">
+                <int>1</int>
+               </void>
+               <void property="msBtwnFailure">
+                <int>10000</int>
+               </void>
+               <void property="msBtwnSuccess">
+                <int>1000</int>
+               </void>
+               <void property="priorityMax">
+                <double>20.0</double>
+               </void>
+               <void property="priorityUsed">
+                <boolean>true</boolean>
+               </void>
+               <void property="removeCondition">
+                <string>PeriodicRemove   = (NumJobStarts &gt;=1 &amp;&amp; JobStatus==1) || (JobStatus == 2 &amp;&amp; (CurrentTime - JobCurrentStartDate &gt; (54000)) &amp;&amp; ((RemoteUserCpu+RemoteSysCpu)/(CurrentTime-JobCurrentStartDate) &lt; 0.10)) || (((CurrentTime - EnteredCurrentStatus) &gt; (2*24*3600)) &amp;&amp; JobStatus == 5) || (JobRunCount &gt;= 1 &amp;&amp; JobStatus == 1)</string>
+               </void>
+               <void property="removeConditionWithRestart">
+                <string>PeriodicRemove   = (NumJobStarts &gt;=1 &amp;&amp; JobStatus==1) || (JobStatus == 2 &amp;&amp; (CurrentTime - JobCurrentStartDate &gt; (54000)) &amp;&amp; ((RemoteUserCpu+RemoteSysCpu)/(CurrentTime-JobCurrentStartDate) &lt; 0.10)) || (((CurrentTime - EnteredCurrentStatus) &gt; (2*24*3600)) &amp;&amp; JobStatus == 5)
++IsRestartable   = true</string>
+               </void>
+               <void property="submitCommand">
+                <string>condor_submit</string>
+               </void>
+              </object>
+             </void>
+             <void property="queues">
+              <void method="add">
+               <object class="gov.bnl.star.offline.scheduler.Queue" id="Queue1">
+                <void property="ID">
+                 <string>bnl_condor_eval_quick</string>
+                </void>
+                <void property="RDLApplicationResolver">
+                 <object class="gov.bnl.star.offline.scheduler.util.RDLApplicationResolver" id="RDLApplicationResolver0"/>
+                </void>
+                <void property="accessMethods">
+                 <void method="add">
+                  <object idref="AccessMethod2"/>
+                 </void>
+                </void>
+                <void property="cluster">
+                 <string>rcrs.rcf.bnl.gov</string>
+                </void>
+                <void property="jobPriorityAdjust">
+                 <byte>10</byte>
+                </void>
+                <void property="maxMemory">
+                 <int>440</int>
+                </void>
+                <void property="name">
+                 <string></string>
+                </void>
+                <void property="searchOrderPriority">
+                 <int>100</int>
+                </void>
+                <void property="site">
+                 <string>STAR</string>
+                </void>
+                <void property="timeLimit">
+                 <int>14400</int>
+                </void>
+                <void property="type">
+                 <string>CONDOR</string>
+                </void>
+               </object>
+              </void>
+             </void>
+            </object>
+           </void>
+           <void method="add">
+            <object class="gov.bnl.star.offline.scheduler.AccessMethod" id="AccessMethod3">
+             <void property="accessPoints">
+              <void method="add">
+               <object idref="LocalAccessPoint0"/>
+              </void>
+             </void>
+             <void property="dispatcher">
+              <object class="gov.bnl.star.offline.scheduler.Dispatchers.condorg.CondorDispatcher">
+               <void property="application">
+                <object idref="CSHApplication0"/>
+               </void>
+               <void property="condorOptions">
+                <string>accounting_group = group_star.cas
+kill_sig        = SIGINT
+PeriodicRemove  = (NumJobStarts &gt;=1 &amp;&amp; JobStatus==1) || (JobStatus == 2 &amp;&amp; (CurrentTime - JobCurrentStartDate &gt; (54000)) &amp;&amp; ((RemoteUserCpu+RemoteSysCpu)/(CurrentTime-JobCurrentStartDate) &lt; 0.10)) || (((CurrentTime - EnteredCurrentStatus) &gt; (2*24*3600)) &amp;&amp; JobStatus == 5) || (JobRunCount &gt;= 1 &amp;&amp; JobStatus == 1)</string>
+               </void>
+               <void property="maxAttempts">
+                <int>20</int>
+               </void>
+               <void property="msBtwnFailure">
+                <int>10000</int>
+               </void>
+               <void property="msBtwnSuccess">
+                <int>1000</int>
+               </void>
+               <void property="priorityMax">
+                <double>20.0</double>
+               </void>
+               <void property="priorityUsed">
+                <boolean>true</boolean>
+               </void>
+               <void property="submitCommand">
+                <string>condor_submit</string>
+               </void>
+              </object>
+             </void>
+             <void property="queues">
+              <void method="add">
+               <object class="gov.bnl.star.offline.scheduler.Queue" id="Queue2">
+                <void property="ID">
+                 <string>bnl_condor_rcas_long</string>
+                </void>
+                <void property="RDLApplicationResolver">
+                 <object idref="RDLApplicationResolver0"/>
+                </void>
+                <void property="accessMethods">
+                 <void method="add">
+                  <object idref="AccessMethod3"/>
+                 </void>
+                 <void method="add">
+                  <object class="gov.bnl.star.offline.scheduler.AccessMethod" id="AccessMethod4">
+                   <void property="accessPoints">
+                    <void method="add">
+                     <object class="gov.bnl.star.offline.scheduler.GateKeeperAccessPoint" id="GateKeeperAccessPoint0">
+                      <void property="accessMethods">
+                       <void method="add">
+                        <object class="gov.bnl.star.offline.scheduler.AccessMethod" id="AccessMethod5">
+                         <void property="accessPoints">
+                          <void method="add">
+                           <object idref="GateKeeperAccessPoint0"/>
+                          </void>
+                         </void>
+                         <void property="batchSystem">
+                          <string>lsf</string>
+                         </void>
+                         <void property="dispatcher">
+                          <object class="gov.bnl.star.offline.scheduler.Dispatchers.condorg.CondorGRSLDispatcher" id="CondorGRSLDispatcher0">
+                           <void property="application">
+                            <object idref="CSHApplication0"/>
+                           </void>
+                           <void property="bsubOptions">
+                            <string></string>
+                           </void>
+                           <void property="clusterName">
+                            <string>rcas.rcf.bnl.gov</string>
+                           </void>
+                           <void property="maxAttempts">
+                            <int>1</int>
+                           </void>
+                           <void property="msBtwnFailure">
+                            <int>10000</int>
+                           </void>
+                           <void property="msBtwnSuccess">
+                            <int>1000</int>
+                           </void>
+                           <void property="queueName">
+                            <string>star_cas_short</string>
+                           </void>
+                           <void property="resourceStrategyList">
+                            <void method="add">
+                             <object class="gov.bnl.star.offline.scheduler.Dispatchers.lsf.LSFResourceStrategy">
+                              <void property="base">
+                               <int>12</int>
+                              </void>
+                              <void property="dataVaultPrefix">
+                               <string>/star/data</string>
+                              </void>
+                              <void property="resourceNameSyntax">
+                               <string>sd$vaultNumber</string>
+                              </void>
+                              <void property="switchSyntax">
+                               <string>&quot;rusage[$nameEqualValueCommaSeparated]&quot;</string>
+                              </void>
+                              <void property="trimVaultNumberLeadingZeros">
+                               <boolean>true</boolean>
+                              </void>
+                             </object>
+                            </void>
+                           </void>
+                           <void property="submitCommand">
+                            <string>condor_submit</string>
+                           </void>
+                           <void property="useRSL">
+                            <boolean>true</boolean>
+                           </void>
+                          </object>
+                         </void>
+                         <void property="queues">
+                          <void method="add">
+                           <object class="gov.bnl.star.offline.scheduler.Queue" id="Queue3">
+                            <void property="ID">
+                             <string>star_cas_short</string>
+                            </void>
+                            <void property="RDLApplicationResolver">
+                             <object idref="RDLApplicationResolver0"/>
+                            </void>
+                            <void property="accessMethods">
+                             <void method="add">
+                              <object idref="AccessMethod5"/>
+                             </void>
+                            </void>
+                            <void property="cluster">
+                             <string>rcas.rcf.bnl.gov</string>
+                            </void>
+                            <void property="maxMemory">
+                             <int>440</int>
+                            </void>
+                            <void property="name">
+                             <string>star_cas_short</string>
+                            </void>
+                            <void property="site">
+                             <string>STAR</string>
+                            </void>
+                            <void property="timeLimit">
+                             <int>90</int>
+                            </void>
+                            <void property="type">
+                             <string>LSF</string>
+                            </void>
+                           </object>
+                          </void>
+                          <void method="add">
+                           <object class="gov.bnl.star.offline.scheduler.Queue" id="Queue4">
+                            <void property="ID">
+                             <string>star_cas_big</string>
+                            </void>
+                            <void property="RDLApplicationResolver">
+                             <object idref="RDLApplicationResolver0"/>
+                            </void>
+                            <void property="accessMethods">
+                             <void method="add">
+                              <object idref="AccessMethod5"/>
+                             </void>
+                            </void>
+                            <void property="cluster">
+                             <string>rcas.rcf.bnl.gov</string>
+                            </void>
+                            <void property="name">
+                             <string>star_cas_big</string>
+                            </void>
+                            <void property="searchOrderPriority">
+                             <int>100</int>
+                            </void>
+                            <void property="site">
+                             <string>STAR</string>
+                            </void>
+                            <void property="timeLimit">
+                             <int>14400</int>
+                            </void>
+                            <void property="type">
+                             <string>LSF</string>
+                            </void>
+                           </object>
+                          </void>
+                          <void method="add">
+                           <object class="gov.bnl.star.offline.scheduler.Queue" id="Queue5">
+                            <void property="ID">
+                             <string>star_crs_short</string>
+                            </void>
+                            <void property="accessMethods">
+                             <void method="add">
+                              <object idref="AccessMethod5"/>
+                             </void>
+                            </void>
+                            <void property="cluster">
+                             <string>crs.rcf.bnl.gov</string>
+                            </void>
+                            <void property="name">
+                             <string>star_crs_short</string>
+                            </void>
+                            <void property="site">
+                             <string>STAR</string>
+                            </void>
+                            <void property="type">
+                             <string>LSF</string>
+                            </void>
+                           </object>
+                          </void>
+                          <void method="add">
+                           <object class="gov.bnl.star.offline.scheduler.Queue" id="Queue6">
+                            <void property="ID">
+                             <string>star_cas_mem</string>
+                            </void>
+                            <void property="RDLApplicationResolver">
+                             <object idref="RDLApplicationResolver0"/>
+                            </void>
+                            <void property="accessMethods">
+                             <void method="add">
+                              <object idref="AccessMethod5"/>
+                             </void>
+                            </void>
+                            <void property="cluster">
+                             <string>rcas.rcf.bnl.gov</string>
+                            </void>
+                            <void property="maxMemory">
+                             <int>250</int>
+                            </void>
+                            <void property="name">
+                             <string>star_cas_mem</string>
+                            </void>
+                            <void property="site">
+                             <string>STAR</string>
+                            </void>
+                            <void property="timeLimit">
+                             <int>90</int>
+                            </void>
+                            <void property="type">
+                             <string>LSF</string>
+                            </void>
+                           </object>
+                          </void>
+                         </void>
+                        </object>
+                       </void>
+                       <void method="add">
+                        <object class="gov.bnl.star.offline.scheduler.AccessMethod" id="AccessMethod6">
+                         <void property="accessPoints">
+                          <void method="add">
+                           <object idref="GateKeeperAccessPoint0"/>
+                          </void>
+                         </void>
+                         <void property="batchSystem">
+                          <string>lsf</string>
+                         </void>
+                         <void property="dispatcher">
+                          <object class="gov.bnl.star.offline.scheduler.Dispatchers.condorg.CondorGRSLDispatcher" id="CondorGRSLDispatcher1">
+                           <void property="application">
+                            <object idref="CSHApplication0"/>
+                           </void>
+                           <void property="bsubOptions">
+                            <string></string>
+                           </void>
+                           <void property="clusterName">
+                            <string>rcas.rcf.bnl.gov</string>
+                           </void>
+                           <void property="maxAttempts">
+                            <int>1</int>
+                           </void>
+                           <void property="msBtwnFailure">
+                            <int>10000</int>
+                           </void>
+                           <void property="msBtwnSuccess">
+                            <int>1000</int>
+                           </void>
+                           <void property="queueName">
+                            <string>star_cas_short</string>
+                           </void>
+                           <void property="resourceStrategyList">
+                            <void method="add">
+                             <object class="gov.bnl.star.offline.scheduler.Dispatchers.lsf.LSFResourceStrategy">
+                              <void property="base">
+                               <int>12</int>
+                              </void>
+                              <void property="dataVaultPrefix">
+                               <string>/star/data</string>
+                              </void>
+                              <void property="resourceNameSyntax">
+                               <string>sd$vaultNumber</string>
+                              </void>
+                              <void property="switchSyntax">
+                               <string>&quot;rusage[$nameEqualValueCommaSeparated]&quot;</string>
+                              </void>
+                              <void property="trimVaultNumberLeadingZeros">
+                               <boolean>true</boolean>
+                              </void>
+                             </object>
+                            </void>
+                           </void>
+                           <void property="submitCommand">
+                            <string>condor_submit</string>
+                           </void>
+                           <void property="useRSL">
+                            <boolean>true</boolean>
+                           </void>
+                          </object>
+                         </void>
+                         <void property="queues">
+                          <void method="add">
+                           <object class="gov.bnl.star.offline.scheduler.Queue" id="Queue7">
+                            <void property="ID">
+                             <string>star_cas_prod</string>
+                            </void>
+                            <void property="RDLApplicationResolver">
+                             <object idref="RDLApplicationResolver0"/>
+                            </void>
+                            <void property="accessMethods">
+                             <void method="add">
+                              <object idref="AccessMethod6"/>
+                             </void>
+                            </void>
+                            <void property="cluster">
+                             <string>rcas.rcf.bnl.gov</string>
+                            </void>
+                            <void property="name">
+                             <string>star_cas_prod</string>
+                            </void>
+                            <void property="searchOrderPriority">
+                             <int>1000</int>
+                            </void>
+                            <void property="site">
+                             <string>STAR</string>
+                            </void>
+                            <void property="type">
+                             <string>LSF</string>
+                            </void>
+                           </object>
+                          </void>
+                         </void>
+                        </object>
+                       </void>
+                       <void method="add">
+                        <object idref="AccessMethod4"/>
+                       </void>
+                       <void method="add">
+                        <object class="gov.bnl.star.offline.scheduler.AccessMethod" id="AccessMethod7">
+                         <void property="accessPoints">
+                          <void method="add">
+                           <object idref="GateKeeperAccessPoint0"/>
+                          </void>
+                         </void>
+                         <void property="batchSystem">
+                          <string>condor</string>
+                         </void>
+                         <void property="dispatcher">
+                          <object class="gov.bnl.star.offline.scheduler.Dispatchers.condorg.CondorGRSLDispatcher">
+                           <void property="application">
+                            <object idref="CSHApplication0"/>
+                           </void>
+                           <void property="maxAttempts">
+                            <int>1</int>
+                           </void>
+                           <void property="msBtwnFailure">
+                            <int>10000</int>
+                           </void>
+                           <void property="msBtwnSuccess">
+                            <int>1000</int>
+                           </void>
+                           <void property="queueName">
+                            <string>medium</string>
+                           </void>
+                           <void property="submitCommand">
+                            <string>condor_submit</string>
+                           </void>
+                           <void property="transferExecutable">
+                            <boolean>true</boolean>
+                           </void>
+                          </object>
+                         </void>
+                         <void property="queues">
+                          <void method="add">
+                           <object class="gov.bnl.star.offline.scheduler.Queue" id="Queue8">
+                            <void property="ID">
+                             <string>bnl_condor_rcrs</string>
+                            </void>
+                            <void property="RDLApplicationResolver">
+                             <object idref="RDLApplicationResolver0"/>
+                            </void>
+                            <void property="accessMethods">
+                             <void method="add">
+                              <object class="gov.bnl.star.offline.scheduler.AccessMethod" id="AccessMethod8">
+                               <void property="accessPoints">
+                                <void method="add">
+                                 <object idref="LocalAccessPoint0"/>
+                                </void>
+                               </void>
+                               <void property="dispatcher">
+                                <object class="gov.bnl.star.offline.scheduler.Dispatchers.condorg.CondorDispatcher">
+                                 <void property="application">
+                                  <object idref="CSHApplication0"/>
+                                 </void>
+                                 <void property="condorOptions">
+                                  <string>
+PeriodicRemove  = (NumJobStarts &gt;=1 &amp;&amp; JobStatus==1) || (JobStatus == 2 &amp;&amp; (CurrentTime - JobCurrentStartDate &gt; (54000)) &amp;&amp; ((RemoteUserCpu+RemoteSysCpu)/(CurrentTime-JobCurrentStartDate) &lt; 0.10)) || (((CurrentTime - EnteredCurrentStatus) &gt; (2*24*3600)) &amp;&amp; JobStatus == 5) || (JobRunCount &gt;= 1 &amp;&amp; JobStatus == 1)</string>
+                                 </void>
+                                 <void property="maxAttempts">
+                                  <int>1</int>
+                                 </void>
+                                 <void property="msBtwnFailure">
+                                  <int>10000</int>
+                                 </void>
+                                 <void property="msBtwnSuccess">
+                                  <int>1000</int>
+                                 </void>
+                                 <void property="submitCommand">
+                                  <string>condor_submit</string>
+                                 </void>
+                                </object>
+                               </void>
+                               <void property="queues">
+                                <void method="add">
+                                 <object idref="Queue8"/>
+                                </void>
+                               </void>
+                              </object>
+                             </void>
+                             <void method="add">
+                              <object idref="AccessMethod7"/>
+                             </void>
+                            </void>
+                            <void property="cluster">
+                             <string>rcrs.rcf.bnl.gov</string>
+                            </void>
+                            <void property="name">
+                             <string></string>
+                            </void>
+                            <void property="site">
+                             <string>STAR</string>
+                            </void>
+                            <void property="timeLimit">
+                             <int>4320</int>
+                            </void>
+                            <void property="type">
+                             <string>CONDOR</string>
+                            </void>
+                           </object>
+                          </void>
+                         </void>
+                        </object>
+                       </void>
+                       <void method="add">
+                        <object class="gov.bnl.star.offline.scheduler.AccessMethod" id="AccessMethod9">
+                         <void property="accessPoints">
+                          <void method="add">
+                           <object idref="GateKeeperAccessPoint0"/>
+                          </void>
+                         </void>
+                         <void property="batchSystem">
+                          <string>condor</string>
+                         </void>
+                         <void property="dispatcher">
+                          <object class="gov.bnl.star.offline.scheduler.Dispatchers.condorg.CondorGRSLDispatcher">
+                           <void property="application">
+                            <object idref="CSHApplication0"/>
+                           </void>
+                           <void property="condorGOptions">
+                            <string>+Job_Type      = &quot;cas&quot;</string>
+                           </void>
+                           <void property="maxAttempts">
+                            <int>1</int>
+                           </void>
+                           <void property="msBtwnFailure">
+                            <int>10000</int>
+                           </void>
+                           <void property="msBtwnSuccess">
+                            <int>1000</int>
+                           </void>
+                           <void property="queueName">
+                            <string>medium</string>
+                           </void>
+                           <void property="submitCommand">
+                            <string>condor_submit</string>
+                           </void>
+                           <void property="transferExecutable">
+                            <boolean>true</boolean>
+                           </void>
+                          </object>
+                         </void>
+                         <void property="queues">
+                          <void method="add">
+                           <object class="gov.bnl.star.offline.scheduler.Queue" id="Queue9">
+                            <void property="ID">
+                             <string>bnl_condor_rcrs</string>
+                            </void>
+                            <void property="RDLApplicationResolver">
+                             <object idref="RDLApplicationResolver0"/>
+                            </void>
+                            <void property="accessMethods">
+                             <void method="add">
+                              <object class="gov.bnl.star.offline.scheduler.AccessMethod" id="AccessMethod10">
+                               <void property="accessPoints">
+                                <void method="add">
+                                 <object idref="LocalAccessPoint0"/>
+                                </void>
+                               </void>
+                               <void property="dispatcher">
+                                <object class="gov.bnl.star.offline.scheduler.Dispatchers.condorg.CondorDispatcher">
+                                 <void property="application">
+                                  <object idref="CSHApplication0"/>
+                                 </void>
+                                 <void property="maxAttempts">
+                                  <int>1</int>
+                                 </void>
+                                 <void property="msBtwnFailure">
+                                  <int>10000</int>
+                                 </void>
+                                 <void property="msBtwnSuccess">
+                                  <int>1000</int>
+                                 </void>
+                                 <void property="removeCondition">
+                                  <string>PeriodicRemove   = (NumJobStarts &gt;=1 &amp;&amp; JobStatus==1) || (JobStatus == 2 &amp;&amp; (CurrentTime - JobCurrentStartDate &gt; (54000)) &amp;&amp; ((RemoteUserCpu+RemoteSysCpu)/(CurrentTime-JobCurrentStartDate) &lt; 0.10)) || (((CurrentTime - EnteredCurrentStatus) &gt; (2*24*3600)) &amp;&amp; JobStatus == 5) || (JobRunCount &gt;= 1 &amp;&amp; JobStatus == 1)</string>
+                                 </void>
+                                 <void property="removeConditionWithRestart">
+                                  <string>PeriodicRemove   = (NumJobStarts &gt;=1 &amp;&amp; JobStatus==1) || (JobStatus == 2 &amp;&amp; (CurrentTime - JobCurrentStartDate &gt; (54000)) &amp;&amp; ((RemoteUserCpu+RemoteSysCpu)/(CurrentTime-JobCurrentStartDate) &lt; 0.10)) || (((CurrentTime - EnteredCurrentStatus) &gt; (2*24*3600)) &amp;&amp; JobStatus == 5)
++IsRestartable   = true</string>
+                                 </void>
+                                 <void property="submitCommand">
+                                  <string>condor_submit</string>
+                                 </void>
+                                </object>
+                               </void>
+                               <void property="queues">
+                                <void method="add">
+                                 <object idref="Queue9"/>
+                                </void>
+                               </void>
+                              </object>
+                             </void>
+                             <void method="add">
+                              <object idref="AccessMethod9"/>
+                             </void>
+                            </void>
+                            <void property="cluster">
+                             <string>rcrs.rcf.bnl.gov</string>
+                            </void>
+                            <void property="name">
+                             <string></string>
+                            </void>
+                            <void property="site">
+                             <string>STAR</string>
+                            </void>
+                            <void property="timeLimit">
+                             <int>5040</int>
+                            </void>
+                            <void property="type">
+                             <string>CONDOR</string>
+                            </void>
+                           </object>
+                          </void>
+                         </void>
+                        </object>
+                       </void>
+                      </void>
+                      <void property="name">
+                       <string>stargrid02.rcf.bnl.gov</string>
+                      </void>
+                      <void property="site">
+                       <object class="gov.bnl.star.offline.scheduler.Site" id="Site0">
+                        <void property="accessPointsList">
+                         <void method="add">
+                          <object class="gov.bnl.star.offline.scheduler.LocalAccessPoint" id="LocalAccessPoint1">
+                           <void property="accessMethods">
+                            <void method="add">
+                             <object class="gov.bnl.star.offline.scheduler.AccessMethod" id="AccessMethod11">
+                              <void property="accessPoints">
+                               <void method="add">
+                                <object idref="LocalAccessPoint1"/>
+                               </void>
+                              </void>
+                              <void property="batchSystem">
+                               <string>fork</string>
+                              </void>
+                              <void property="dispatcher">
+                               <object idref="LocalDispatcher0"/>
+                              </void>
+                              <void property="queues">
+                               <void method="add">
+                                <object class="gov.bnl.star.offline.scheduler.Queue" id="Queue10">
+                                 <void property="ID">
+                                  <string>local_Queue</string>
+                                 </void>
+                                 <void property="accessMethods">
+                                  <void method="add">
+                                   <object idref="AccessMethod11"/>
+                                  </void>
+                                 </void>
+                                 <void property="cluster">
+                                  <string>local</string>
+                                 </void>
+                                 <void property="name">
+                                  <string></string>
+                                 </void>
+                                 <void property="searchOrderPriority">
+                                  <int>0</int>
+                                 </void>
+                                 <void property="site">
+                                  <string>local</string>
+                                 </void>
+                                 <void property="type">
+                                  <string>fork</string>
+                                 </void>
+                                </object>
+                               </void>
+                              </void>
+                             </object>
+                            </void>
+                           </void>
+                           <void property="site">
+                            <object idref="Site0"/>
+                           </void>
+                          </object>
+                         </void>
+                         <void method="add">
+                          <object idref="LocalAccessPoint0"/>
+                         </void>
+                         <void method="add">
+                          <object idref="GateKeeperAccessPoint0"/>
+                         </void>
+                        </void>
+                        <void property="canonicalName">
+                         <string>bnl</string>
+                        </void>
+                        <void property="fileSyntaxes">
+                         <void method="put">
+                          <string>xrootddev</string>
+                          <object class="gov.bnl.star.offline.scheduler.util.fileSyntax.XRootdSyntax">
+                           <void property="xrootdRedirectorName">
+                            <string>xrdstar.rcf.bnl.gov</string>
+                           </void>
+                           <void property="xrootdRedirectorPort">
+                            <int>4095</int>
+                           </void>
+                          </object>
+                         </void>
+                         <void method="put">
+                          <string>rootd</string>
+                          <object class="gov.bnl.star.offline.scheduler.util.fileSyntax.RootdSyntax"/>
+                         </void>
+                         <void method="put">
+                          <string>rfio</string>
+                          <object class="gov.bnl.star.offline.scheduler.util.fileSyntax.RFIOSyntax"/>
+                         </void>
+                         <void method="put">
+                          <string>xrootd</string>
+                          <object class="gov.bnl.star.offline.scheduler.util.fileSyntax.XRootdSyntax">
+                           <void property="isDefaultSiteSyntax">
+                            <boolean>true</boolean>
+                           </void>
+                           <void property="xrootdRedirectorName">
+                            <string>xrdstar.rcf.bnl.gov</string>
+                           </void>
+                           <void property="xrootdRedirectorPort">
+                            <int>1095</int>
+                           </void>
+                          </object>
+                         </void>
+                        </void>
+                        <void property="fileTransferGatekeepes">
+                         <void method="add">
+                          <object class="gov.bnl.star.offline.scheduler.GateKeeperAccessPoint">
+                           <void property="name">
+                            <string>stargrid04.rcf.bnl.gov</string>
+                           </void>
+                           <void property="utilization">
+                            <int>100</int>
+                           </void>
+                          </object>
+                         </void>
+                        </void>
+                        <void property="logConf">
+                         <object class="java.util.Hashtable">
+                          <void method="put">
+                           <string>directory</string>
+                           <string>/afs/rhic.bnl.gov/star/doc/www/html/tmp/pub/scheduler</string>
+                          </void>
+                          <void method="put">
+                           <string>level</string>
+                           <string>INFO</string>
+                          </void>
+                         </object>
+                        </void>
+                        <void property="programLocations">
+                         <object class="java.util.Hashtable" id="Hashtable0">
+                          <void method="put">
+                           <string>$SCRATCH</string>
+                           <string>/tmp</string>
+                          </void>
+                          <void method="put">
+                           <string>ls</string>
+                           <string>/bin/ls</string>
+                          </void>
+                          <void method="put">
+                           <string>unzip</string>
+                           <string>/usr/bin/unzip</string>
+                          </void>
+                          <void method="put">
+                           <string>csh</string>
+                           <string>/bin/csh</string>
+                          </void>
+                          <void method="put">
+                           <string>pacman_caches</string>
+                           <string>/afs/rhic.bnl.gov/star/doc/www/comp/ofl/pacman/caches:STARGRIDCACHES</string>
+                          </void>
+                          <void method="put">
+                           <string>ln</string>
+                           <string>/bin/ln</string>
+                          </void>
+                          <void method="put">
+                           <string>pacman_setup_script</string>
+                           <string>/afs/rhic.bnl.gov/star/packages/scripts/pacman/pacman-3.18.3/setup.csh</string>
+                          </void>
+                         </object>
+                        </void>
+                        <void property="proxy">
+                         <object class="gov.bnl.star.offline.scheduler.informationService.Proxy">
+                          <void property="proxyHost">
+                           <string>192.168.1.4</string>
+                          </void>
+                          <void property="proxyPort">
+                           <string>3128</string>
+                          </void>
+                          <void property="useProxy">
+                           <boolean>true</boolean>
+                          </void>
+                         </object>
+                        </void>
+                        <void property="siteName">
+                         <string>rhic.bnl.gov</string>
+                        </void>
+                       </object>
+                      </void>
+                     </object>
+                    </void>
+                   </void>
+                   <void property="batchSystem">
+                    <string>condor</string>
+                   </void>
+                   <void property="dispatcher">
+                    <object class="gov.bnl.star.offline.scheduler.Dispatchers.condorg.CondorGRSLDispatcher">
+                     <void property="application">
+                      <object idref="CSHApplication0"/>
+                     </void>
+                     <void property="condorGOptions">
+                      <string>Priority        = +10</string>
+                     </void>
+                     <void property="maxAttempts">
+                      <int>1</int>
+                     </void>
+                     <void property="msBtwnFailure">
+                      <int>10000</int>
+                     </void>
+                     <void property="msBtwnSuccess">
+                      <int>1000</int>
+                     </void>
+                     <void property="queueName">
+                      <string>medium</string>
+                     </void>
+                     <void property="submitCommand">
+                      <string>condor_submit</string>
+                     </void>
+                     <void property="transferExecutable">
+                      <boolean>true</boolean>
+                     </void>
+                    </object>
+                   </void>
+                   <void property="queues">
+                    <void method="add">
+                     <object idref="Queue2"/>
+                    </void>
+                   </void>
+                  </object>
+                 </void>
+                </void>
+                <void property="cluster">
+                 <string>rcrs.rcf.bnl.gov</string>
+                </void>
+                <void property="jobPriorityAdjust">
+                 <byte>10</byte>
+                </void>
+                <void property="maxMemory">
+                 <int>50000</int>
+                </void>
+                <void property="name">
+                 <string></string>
+                </void>
+                <void property="searchOrderPriority">
+                 <int>100</int>
+                </void>
+                <void property="site">
+                 <string>STAR</string>
+                </void>
+                <void property="timeLimit">
+                 <int>7200</int>
+                </void>
+                <void property="type">
+                 <string>CONDOR</string>
+                </void>
+               </object>
+              </void>
+             </void>
+            </object>
+           </void>
+           <void method="add">
+            <object class="gov.bnl.star.offline.scheduler.AccessMethod" id="AccessMethod12">
+             <void property="accessPoints">
+              <void method="add">
+               <object idref="LocalAccessPoint0"/>
+              </void>
+             </void>
+             <void property="dispatcher">
+              <object class="gov.bnl.star.offline.scheduler.Dispatchers.condorg.CondorFastDispatcher">
+               <void property="application">
+                <object idref="CSHApplication0"/>
+               </void>
+               <void property="condorOptions">
+                <string>kill_sig         = SIGINT
+accounting_group = group_star.cas
+PeriodicRemove   = (NumJobStarts &gt;=1 &amp;&amp; JobStatus==1) || (JobStatus == 2 &amp;&amp; (CurrentTime - JobCurrentStartDate &gt; (54000)) &amp;&amp; ((RemoteUserCpu+RemoteSysCpu)/(CurrentTime-JobCurrentStartDate) &lt; 0.10)) || (((CurrentTime - EnteredCurrentStatus) &gt; (2*24*3600)) &amp;&amp; JobStatus == 5) || (JobRunCount &gt;= 1 &amp;&amp; JobStatus == 1)</string>
+               </void>
+               <void property="maxAttempts">
+                <int>20</int>
+               </void>
+               <void property="msBtwnFailure">
+                <int>10000</int>
+               </void>
+               <void property="msBtwnSuccess">
+                <int>1000</int>
+               </void>
+               <void property="priorityMax">
+                <double>20.0</double>
+               </void>
+               <void property="priorityUsed">
+                <boolean>true</boolean>
+               </void>
+               <void property="submitCommand">
+                <string>condor_submit -verbose</string>
+               </void>
+              </object>
+             </void>
+             <void property="queues">
+              <void method="add">
+               <object class="gov.bnl.star.offline.scheduler.Queue" id="Queue11">
+                <void property="ID">
+                 <string>bnl_condor_long_SP-Only</string>
+                </void>
+                <void property="RDLApplicationResolver">
+                 <object idref="RDLApplicationResolver0"/>
+                </void>
+                <void property="accessMethods">
+                 <void method="add">
+                  <object idref="AccessMethod12"/>
+                 </void>
+                </void>
+                <void property="cluster">
+                 <string>rcrs.rcf.bnl.gov</string>
+                </void>
+                <void property="jobPriorityAdjust">
+                 <byte>10</byte>
+                </void>
+                <void property="maxMemory">
+                 <int>50000</int>
+                </void>
+                <void property="name">
+                 <string></string>
+                </void>
+                <void property="searchOrderPriority">
+                 <int>100</int>
+                </void>
+                <void property="site">
+                 <string>STAR</string>
+                </void>
+                <void property="timeLimit">
+                 <int>7200</int>
+                </void>
+                <void property="type">
+                 <string>CONDOR</string>
+                </void>
+               </object>
+              </void>
+             </void>
+            </object>
+           </void>
+           <void method="add">
+            <object class="gov.bnl.star.offline.scheduler.AccessMethod" id="AccessMethod13">
+             <void property="accessPoints">
+              <void method="add">
+               <object idref="LocalAccessPoint0"/>
+              </void>
+             </void>
+             <void property="dispatcher">
+              <object class="gov.bnl.star.offline.scheduler.Dispatchers.condorg.CondorFastDispatcher" id="CondorFastDispatcher0">
+               <void property="application">
+                <object idref="CSHApplication0"/>
+               </void>
+               <void property="condorOptions">
+                <string>kill_sig        = SIGINT
+PeriodicRemove  = (NumJobStarts &gt;=1 &amp;&amp; JobStatus==1) || (JobStatus == 2 &amp;&amp; (CurrentTime - JobCurrentStartDate &gt; (54000)) &amp;&amp; ((RemoteUserCpu+RemoteSysCpu)/(CurrentTime-JobCurrentStartDate) &lt; 0.10)) || (((CurrentTime - EnteredCurrentStatus) &gt; (2*24*3600)) &amp;&amp; JobStatus == 5) || (JobRunCount &gt;= 1 &amp;&amp; JobStatus == 1)
+accounting_group = group_star.crs</string>
+               </void>
+               <void property="maxAttempts">
+                <int>20</int>
+               </void>
+               <void property="msBtwnFailure">
+                <int>10000</int>
+               </void>
+               <void property="msBtwnSuccess">
+                <int>1000</int>
+               </void>
+               <void property="priorityMax">
+                <double>20.0</double>
+               </void>
+               <void property="priorityUsed">
+                <boolean>true</boolean>
+               </void>
+               <void property="requirements">
+                <void method="add">
+                 <string>(CpuFamily == 6 &amp;&amp; CpuModelNumber == 106)</string>
+                </void>
+               </void>
+               <void property="submitCommand">
+                <string>condor_submit -verbose</string>
+               </void>
+              </object>
+             </void>
+             <void property="queues">
+              <void method="add">
+               <object class="gov.bnl.star.offline.scheduler.Queue" id="Queue12">
+                <void property="ID">
+                 <string>bnl_condor_high_queue</string>
+                </void>
+                <void property="RDLApplicationResolver">
+                 <object idref="RDLApplicationResolver0"/>
+                </void>
+                <void property="accessMethods">
+                 <void method="add">
+                  <object idref="AccessMethod13"/>
+                 </void>
+                </void>
+                <void property="cluster">
+                 <string>rcrs.rcf.bnl.gov</string>
+                </void>
+                <void property="maxMemory">
+                 <int>50000</int>
+                </void>
+                <void property="name">
+                 <string></string>
+                </void>
+                <void property="searchOrderPriority">
+                 <int>100</int>
+                </void>
+                <void property="site">
+                 <string>STAR</string>
+                </void>
+                <void property="timeLimit">
+                 <int>4320</int>
+                </void>
+                <void property="type">
+                 <string>CONDOR</string>
+                </void>
+               </object>
+              </void>
+             </void>
+            </object>
+           </void>
+           <void method="add">
+            <object class="gov.bnl.star.offline.scheduler.AccessMethod" id="AccessMethod14">
+             <void property="accessPoints">
+              <void method="add">
+               <object idref="LocalAccessPoint0"/>
+              </void>
+             </void>
+             <void property="dispatcher">
+              <object class="gov.bnl.star.offline.scheduler.Dispatchers.condorg.CondorFastDispatcher" id="CondorFastDispatcher1">
+               <void property="application">
+                <object idref="CSHApplication0"/>
+               </void>
+               <void property="condorOptions">
+                <string>kill_sig        = SIGINT
+PeriodicRemove  = (NumJobStarts &gt;=1 &amp;&amp; JobStatus==1) || (JobStatus == 2 &amp;&amp; (CurrentTime - JobCurrentStartDate &gt; (54000)) &amp;&amp; ((RemoteUserCpu+RemoteSysCpu)/(CurrentTime-JobCurrentStartDate) &lt; 0.10)) || (((CurrentTime - EnteredCurrentStatus) &gt; (2*24*3600)) &amp;&amp; JobStatus == 5) || (JobRunCount &gt;= 1 &amp;&amp; JobStatus == 1)</string>
+               </void>
+               <void property="hostNameBasedString">
+                <object class="gov.bnl.star.offline.scheduler.util.stringMaker.HostNameBasedString" id="HostNameBasedString0">
+                 <void property="hostBasedValues">
+                  <object class="java.util.HashMap">
+                   <void method="put">
+                    <string>rcas6[0-9]+.rcf.bnl.gov</string>
+                    <string>Accounting_group = group_star.cas</string>
+                   </void>
+                   <void method="put">
+                    <string>eic[0-9]+.rcf.bnl.gov</string>
+                    <string>AccountingGroup = group_eic</string>
+                   </void>
+                  </object>
+                 </void>
+                </object>
+               </void>
+               <void property="maxAttempts">
+                <int>20</int>
+               </void>
+               <void property="msBtwnFailure">
+                <int>10000</int>
+               </void>
+               <void property="msBtwnSuccess">
+                <int>1000</int>
+               </void>
+               <void property="priorityMax">
+                <double>20.0</double>
+               </void>
+               <void property="priorityUsed">
+                <boolean>true</boolean>
+               </void>
+               <void property="requirements">
+                <void method="add">
+                 <string>(CpuFamily == 6 &amp;&amp; CpuModelNumber == 106)</string>
+                </void>
+               </void>
+               <void property="submitCommand">
+                <string>condor_submit -verbose</string>
+               </void>
+              </object>
+             </void>
+             <void property="queues">
+              <void method="add">
+               <object class="gov.bnl.star.offline.scheduler.Queue" id="Queue13">
+                <void property="ID">
+                 <string>bnl_condor_high_queue</string>
+                </void>
+                <void property="RDLApplicationResolver">
+                 <object idref="RDLApplicationResolver0"/>
+                </void>
+                <void property="accessMethods">
+                 <void method="add">
+                  <object idref="AccessMethod14"/>
+                 </void>
+                 <void method="add">
+                  <object class="gov.bnl.star.offline.scheduler.AccessMethod" id="AccessMethod15">
+                   <void property="accessPoints">
+                    <void method="add">
+                     <object class="gov.bnl.star.offline.scheduler.LocalAccessPoint" id="LocalAccessPoint2">
+                      <void property="accessMethods">
+                       <void method="add">
+                        <object class="gov.bnl.star.offline.scheduler.AccessMethod" id="AccessMethod16">
+                         <void property="accessPoints">
+                          <void method="add">
+                           <object idref="LocalAccessPoint2"/>
+                          </void>
+                         </void>
+                         <void property="batchSystem">
+                          <string>local</string>
+                         </void>
+                         <void property="dispatcher">
+                          <object class="gov.bnl.star.offline.scheduler.Dispatchers.condorg.CondorFastDispatcher">
+                           <void property="application">
+                            <object idref="CSHApplication0"/>
+                           </void>
+                           <void property="condorOptions">
+                            <string>kill_sig         = SIGINT</string>
+                           </void>
+                           <void property="maxAttempts">
+                            <int>20</int>
+                           </void>
+                           <void property="msBtwnFailure">
+                            <int>1000</int>
+                           </void>
+                           <void property="msBtwnSuccess">
+                            <int>1000</int>
+                           </void>
+                           <void property="priorityMax">
+                            <double>20.0</double>
+                           </void>
+                           <void property="priorityUsed">
+                            <boolean>true</boolean>
+                           </void>
+                           <void property="removeCondition">
+                            <string>PeriodicRemove   = (NumJobStarts &gt;=1 &amp;&amp; JobStatus==1) || (JobStatus == 2 &amp;&amp; (CurrentTime - JobCurrentStartDate &gt; (54000)) &amp;&amp; ((RemoteUserCpu+RemoteSysCpu)/(CurrentTime-JobCurrentStartDate) &lt; 0.10)) || (((CurrentTime - EnteredCurrentStatus) &gt; (2*24*3600)) &amp;&amp; JobStatus == 5) || (JobRunCount &gt;= 1 &amp;&amp; JobStatus == 1)</string>
+                           </void>
+                           <void property="removeConditionWithRestart">
+                            <string>PeriodicRemove   = (NumJobStarts &gt;=1 &amp;&amp; JobStatus==1) || (JobStatus == 2 &amp;&amp; (CurrentTime - JobCurrentStartDate &gt; (54000)) &amp;&amp; ((RemoteUserCpu+RemoteSysCpu)/(CurrentTime-JobCurrentStartDate) &lt; 0.10)) || (((CurrentTime - EnteredCurrentStatus) &gt; (2*24*3600)) &amp;&amp; JobStatus == 5)
++IsRestartable   = true</string>
+                           </void>
+                           <void property="submitCommand">
+                            <string>condor_submit -verbose</string>
+                           </void>
+                          </object>
+                         </void>
+                         <void property="queues">
+                          <void method="add">
+                           <object class="gov.bnl.star.offline.scheduler.Queue" id="Queue14">
+                            <void property="ID">
+                             <string>bnl_condor_eic</string>
+                            </void>
+                            <void property="RDLApplicationResolver">
+                             <object idref="RDLApplicationResolver0"/>
+                            </void>
+                            <void property="accessMethods">
+                             <void method="add">
+                              <object idref="AccessMethod16"/>
+                             </void>
+                            </void>
+                            <void property="cluster">
+                             <string>eic.bnl.gov</string>
+                            </void>
+                            <void property="maxMemory">
+                             <int>50000</int>
+                            </void>
+                            <void property="name">
+                             <string></string>
+                            </void>
+                            <void property="searchOrderPriority">
+                             <int>50</int>
+                            </void>
+                            <void property="site">
+                             <string>EIC</string>
+                            </void>
+                            <void property="timeLimit">
+                             <int>4320</int>
+                            </void>
+                            <void property="type">
+                             <string>CONDOR</string>
+                            </void>
+                           </object>
+                          </void>
+                         </void>
+                        </object>
+                       </void>
+                       <void method="add">
+                        <object idref="AccessMethod15"/>
+                       </void>
+                      </void>
+                      <void property="site">
+                       <object class="gov.bnl.star.offline.scheduler.Site" id="Site1">
+                        <void property="accessPointsList">
+                         <void method="add">
+                          <object idref="LocalAccessPoint2"/>
+                         </void>
+                        </void>
+                        <void property="canonicalName">
+                         <string>EIC</string>
+                        </void>
+                        <void property="fileSyntaxes">
+                         <void method="put">
+                          <string>rootd</string>
+                          <object class="gov.bnl.star.offline.scheduler.util.fileSyntax.RootdSyntax"/>
+                         </void>
+                         <void method="put">
+                          <string>xrootd</string>
+                          <object class="gov.bnl.star.offline.scheduler.util.fileSyntax.XRootdSyntax">
+                           <void property="isDefaultSiteSyntax">
+                            <boolean>true</boolean>
+                           </void>
+                           <void property="xrootdRedirectorName">
+                            <string>xrdstar.rcf.bnl.gov</string>
+                           </void>
+                           <void property="xrootdRedirectorPort">
+                            <int>1095</int>
+                           </void>
+                          </object>
+                         </void>
+                        </void>
+                        <void property="logConf">
+                         <object class="java.util.Hashtable">
+                          <void method="put">
+                           <string>directory</string>
+                           <string>$HOME/.sums</string>
+                          </void>
+                          <void method="put">
+                           <string>level</string>
+                           <string>INFO</string>
+                          </void>
+                         </object>
+                        </void>
+                        <void property="programLocations">
+                         <object idref="Hashtable0"/>
+                        </void>
+                        <void property="siteName">
+                         <string>eic.bnl.gov</string>
+                        </void>
+                       </object>
+                      </void>
+                     </object>
+                    </void>
+                   </void>
+                   <void property="batchSystem">
+                    <string>local</string>
+                   </void>
+                   <void property="dispatcher">
+                    <object idref="CondorFastDispatcher1"/>
+                   </void>
+                   <void property="queues">
+                    <void method="add">
+                     <object idref="Queue13"/>
+                    </void>
+                   </void>
+                  </object>
+                 </void>
+                </void>
+                <void property="cluster">
+                 <string>rcrs.rcf.bnl.gov</string>
+                </void>
+                <void property="maxMemory">
+                 <int>50000</int>
+                </void>
+                <void property="name">
+                 <string></string>
+                </void>
+                <void property="searchOrderPriority">
+                 <int>100</int>
+                </void>
+                <void property="site">
+                 <string>STAR</string>
+                </void>
+                <void property="timeLimit">
+                 <int>4320</int>
+                </void>
+                <void property="type">
+                 <string>CONDOR</string>
+                </void>
+               </object>
+              </void>
+             </void>
+            </object>
+           </void>
+           <void method="add">
+            <object class="gov.bnl.star.offline.scheduler.AccessMethod" id="AccessMethod17">
+             <void property="accessPoints">
+              <void method="add">
+               <object idref="LocalAccessPoint0"/>
+              </void>
+             </void>
+             <void property="dispatcher">
+              <object idref="CondorFastDispatcher0"/>
+             </void>
+             <void property="queues">
+              <void method="add">
+               <object class="gov.bnl.star.offline.scheduler.Queue" id="Queue15">
+                <void property="ID">
+                 <string>bnl_condor_high_queue</string>
+                </void>
+                <void property="RDLApplicationResolver">
+                 <object idref="RDLApplicationResolver0"/>
+                </void>
+                <void property="accessMethods">
+                 <void method="add">
+                  <object idref="AccessMethod17"/>
+                 </void>
+                </void>
+                <void property="cluster">
+                 <string>rcrs.rcf.bnl.gov</string>
+                </void>
+                <void property="maxMemory">
+                 <int>50000</int>
+                </void>
+                <void property="name">
+                 <string></string>
+                </void>
+                <void property="searchOrderPriority">
+                 <int>100</int>
+                </void>
+                <void property="site">
+                 <string>STAR</string>
+                </void>
+                <void property="timeLimit">
+                 <int>4320</int>
+                </void>
+                <void property="type">
+                 <string>CONDOR</string>
+                </void>
+               </object>
+              </void>
+             </void>
+            </object>
+           </void>
+           <void method="add">
+            <object class="gov.bnl.star.offline.scheduler.AccessMethod" id="AccessMethod18">
+             <void property="accessPoints">
+              <void method="add">
+               <object idref="LocalAccessPoint0"/>
+              </void>
+             </void>
+             <void property="dispatcher">
+              <object class="gov.bnl.star.offline.scheduler.Dispatchers.condorg.CondorFastDispatcher">
+               <void property="application">
+                <object idref="CSHApplication0"/>
+               </void>
+               <void property="condorOptions">
+                <string>+Job_Type        = &quot;long&quot;
+kill_sig         = SIGINT
+accounting_group = group_star.embed</string>
+               </void>
+               <void property="maxAttempts">
+                <int>20</int>
+               </void>
+               <void property="msBtwnFailure">
+                <int>10000</int>
+               </void>
+               <void property="msBtwnSuccess">
+                <int>1000</int>
+               </void>
+               <void property="priorityMax">
+                <double>20.0</double>
+               </void>
+               <void property="priorityUsed">
+                <boolean>true</boolean>
+               </void>
+               <void property="removeCondition">
+                <string>PeriodicRemove   = (NumJobStarts &gt;=1 &amp;&amp; JobStatus==1) || (JobStatus == 2 &amp;&amp; (CurrentTime - JobCurrentStartDate &gt; (54000)) &amp;&amp; ((RemoteUserCpu+RemoteSysCpu)/(CurrentTime-JobCurrentStartDate) &lt; 0.10)) || (((CurrentTime - EnteredCurrentStatus) &gt; (2*24*3600)) &amp;&amp; JobStatus == 5) || (JobRunCount &gt;= 1 &amp;&amp; JobStatus == 1)</string>
+               </void>
+               <void property="removeConditionWithRestart">
+                <string>PeriodicRemove   = (NumJobStarts &gt;=1 &amp;&amp; JobStatus==1) || (JobStatus == 2 &amp;&amp; (CurrentTime - JobCurrentStartDate &gt; (54000)) &amp;&amp; ((RemoteUserCpu+RemoteSysCpu)/(CurrentTime-JobCurrentStartDate) &lt; 0.10)) || (((CurrentTime - EnteredCurrentStatus) &gt; (2*24*3600)) &amp;&amp; JobStatus == 5)
++IsRestartable   = flase</string>
+               </void>
+               <void property="submitCommand">
+                <string>condor_submit -verbose</string>
+               </void>
+              </object>
+             </void>
+             <void property="queues">
+              <void method="add">
+               <object class="gov.bnl.star.offline.scheduler.Queue" id="Queue16">
+                <void property="ID">
+                 <string>bnl_condor_embed_quick</string>
+                </void>
+                <void property="RDLApplicationResolver">
+                 <object idref="RDLApplicationResolver0"/>
+                </void>
+                <void property="accessMethods">
+                 <void method="add">
+                  <object idref="AccessMethod18"/>
+                 </void>
+                </void>
+                <void property="cluster">
+                 <string>sdcc.bnl.gov</string>
+                </void>
+                <void property="jobPriorityAdjust">
+                 <byte>10</byte>
+                </void>
+                <void property="maxMemory">
+                 <int>50000</int>
+                </void>
+                <void property="name">
+                 <string></string>
+                </void>
+                <void property="searchOrderPriority">
+                 <int>100</int>
+                </void>
+                <void property="site">
+                 <string>STAR</string>
+                </void>
+                <void property="timeLimit">
+                 <int>4320</int>
+                </void>
+                <void property="type">
+                 <string>CONDOR</string>
+                </void>
+               </object>
+              </void>
+             </void>
+            </object>
+           </void>
+           <void method="add">
+            <object idref="AccessMethod0"/>
+           </void>
+           <void method="add">
+            <object class="gov.bnl.star.offline.scheduler.AccessMethod" id="AccessMethod19">
+             <void property="accessPoints">
+              <void method="add">
+               <object idref="LocalAccessPoint0"/>
+              </void>
+             </void>
+             <void property="dispatcher">
+              <object class="gov.bnl.star.offline.scheduler.Dispatchers.condorg.CondorFastDispatcher" id="CondorFastDispatcher2">
+               <void property="application">
+                <object idref="CSHApplication0"/>
+               </void>
+               <void property="condorOptions">
+                <string>
+kill_sig         = SIGINT
+accounting_group = group_star.cas</string>
+               </void>
+               <void property="maxAttempts">
+                <int>20</int>
+               </void>
+               <void property="msBtwnFailure">
+                <int>1000</int>
+               </void>
+               <void property="msBtwnSuccess">
+                <int>1000</int>
+               </void>
+               <void property="priorityMax">
+                <double>20.0</double>
+               </void>
+               <void property="priorityUsed">
+                <boolean>true</boolean>
+               </void>
+               <void property="removeCondition">
+                <string>PeriodicRemove   = (NumJobStarts &gt;=1 &amp;&amp; JobStatus==1) || (JobStatus == 2 &amp;&amp; (CurrentTime - JobCurrentStartDate &gt; (54000)) &amp;&amp; ((RemoteUserCpu+RemoteSysCpu)/(CurrentTime-JobCurrentStartDate) &lt; 0.10)) || (((CurrentTime - EnteredCurrentStatus) &gt; (2*24*3600)) &amp;&amp; JobStatus == 5) || (JobRunCount &gt;= 1 &amp;&amp; JobStatus == 1)</string>
+               </void>
+               <void property="removeConditionWithRestart">
+                <string>PeriodicRemove   = (NumJobStarts &gt;=1 &amp;&amp; JobStatus==1) || (JobStatus == 2 &amp;&amp; (CurrentTime - JobCurrentStartDate &gt; (54000)) &amp;&amp; ((RemoteUserCpu+RemoteSysCpu)/(CurrentTime-JobCurrentStartDate) &lt; 0.10)) || (((CurrentTime - EnteredCurrentStatus) &gt; (2*24*3600)) &amp;&amp; JobStatus == 5)
++IsRestartable   = true</string>
+               </void>
+               <void property="requirements">
+                <void method="add">
+                 <string>(Mips&gt;21000)</string>
+                </void>
+               </void>
+               <void property="submitCommand">
+                <string>condor_submit -verbose</string>
+               </void>
+              </object>
+             </void>
+             <void property="queues">
+              <void method="add">
+               <object class="gov.bnl.star.offline.scheduler.Queue" id="Queue17">
+                <void property="ID">
+                 <string>bnl_condor_med_newcpus</string>
+                </void>
+                <void property="RDLApplicationResolver">
+                 <object idref="RDLApplicationResolver0"/>
+                </void>
+                <void property="accessMethods">
+                 <void method="add">
+                  <object idref="AccessMethod19"/>
+                 </void>
+                </void>
+                <void property="cluster">
+                 <string>rcrs.rcf.bnl.gov</string>
+                </void>
+                <void property="maxMemory">
+                 <int>50000</int>
+                </void>
+                <void property="name">
+                 <string></string>
+                </void>
+                <void property="searchOrderPriority">
+                 <int>50</int>
+                </void>
+                <void property="site">
+                 <string>STAR</string>
+                </void>
+                <void property="timeLimit">
+                 <int>4320</int>
+                </void>
+                <void property="type">
+                 <string>CONDOR</string>
+                </void>
+               </object>
+              </void>
+             </void>
+            </object>
+           </void>
+           <void method="add">
+            <object class="gov.bnl.star.offline.scheduler.AccessMethod" id="AccessMethod20">
+             <void property="accessPoints">
+              <void method="add">
+               <object idref="LocalAccessPoint0"/>
+              </void>
+             </void>
+             <void property="dispatcher">
+              <object class="gov.bnl.star.offline.scheduler.Dispatchers.condorg.CondorFastDispatcher">
+               <void property="application">
+                <object idref="CSHApplication0"/>
+               </void>
+               <void property="condorOptions">
+                <string>kill_sig         = SIGINT
+AccountingGroup  = group_star.crs</string>
+               </void>
+               <void property="maxAttempts">
+                <int>10</int>
+               </void>
+               <void property="msBtwnFailure">
+                <int>10000</int>
+               </void>
+               <void property="msBtwnSuccess">
+                <int>1000</int>
+               </void>
+               <void property="priorityMax">
+                <double>20.0</double>
+               </void>
+               <void property="priorityUsed">
+                <boolean>true</boolean>
+               </void>
+               <void property="removeCondition">
+                <string>PeriodicRemove   = (NumJobStarts &gt;=1 &amp;&amp; JobStatus==1) || (JobStatus == 2 &amp;&amp; (CurrentTime - JobCurrentStartDate &gt; (54000)) &amp;&amp; ((RemoteUserCpu+RemoteSysCpu)/(CurrentTime-JobCurrentStartDate) &lt; 0.10)) || (((CurrentTime - EnteredCurrentStatus) &gt; (2*24*3600)) &amp;&amp; JobStatus == 5) || (JobRunCount &gt;= 1 &amp;&amp; JobStatus == 1)</string>
+               </void>
+               <void property="removeConditionWithRestart">
+                <string>PeriodicRemove   = (NumJobStarts &gt;=1 &amp;&amp; JobStatus==1) || (JobStatus == 2 &amp;&amp; (CurrentTime - JobCurrentStartDate &gt; (54000)) &amp;&amp; ((RemoteUserCpu+RemoteSysCpu)/(CurrentTime-JobCurrentStartDate) &lt; 0.10)) || (((CurrentTime - EnteredCurrentStatus) &gt; (2*24*3600)) &amp;&amp; JobStatus == 5)
++IsRestartable   = true</string>
+               </void>
+               <void property="submitCommand">
+                <string>condor_submit -verbose</string>
+               </void>
+              </object>
+             </void>
+             <void property="queues">
+              <void method="add">
+               <object class="gov.bnl.star.offline.scheduler.Queue" id="Queue18">
+                <void property="ID">
+                 <string>BNL_condor_production</string>
+                </void>
+                <void property="RDLApplicationResolver">
+                 <object idref="RDLApplicationResolver0"/>
+                </void>
+                <void property="accessMethods">
+                 <void method="add">
+                  <object idref="AccessMethod20"/>
+                 </void>
+                </void>
+                <void property="cluster">
+                 <string>rcrs.rcf.bnl.gov</string>
+                </void>
+                <void property="jobPriorityAdjust">
+                 <byte>10</byte>
+                </void>
+                <void property="maxMemory">
+                 <int>50000</int>
+                </void>
+                <void property="name">
+                 <string></string>
+                </void>
+                <void property="searchOrderPriority">
+                 <int>100</int>
+                </void>
+                <void property="site">
+                 <string>STAR</string>
+                </void>
+                <void property="timeLimit">
+                 <int>7200</int>
+                </void>
+                <void property="type">
+                 <string>CONDOR</string>
+                </void>
+               </object>
+              </void>
+             </void>
+            </object>
+           </void>
+           <void method="add">
+            <object class="gov.bnl.star.offline.scheduler.AccessMethod" id="AccessMethod21">
+             <void property="accessPoints">
+              <void method="add">
+               <object idref="LocalAccessPoint0"/>
+              </void>
+             </void>
+             <void property="dispatcher">
+              <object class="gov.bnl.star.offline.scheduler.Dispatchers.condorg.CondorDAGDispatcher">
+               <void property="application">
+                <object idref="CSHApplication0"/>
+               </void>
+               <void property="condorOptions">
+                <string>accounting_group = group_star.cas
+kill_sig        = SIGINT
+PeriodicRemove  = (NumJobStarts &gt;=1 &amp;&amp; JobStatus==1) || (JobStatus == 2 &amp;&amp; (CurrentTime - JobCurrentStartDate &gt; (54000)) &amp;&amp; ((RemoteUserCpu+RemoteSysCpu)/(CurrentTime-JobCurrentStartDate) &lt; 0.10)) || (((CurrentTime - EnteredCurrentStatus) &gt; (2*24*3600)) &amp;&amp; JobStatus == 5) || (JobRunCount &gt;= 1 &amp;&amp; JobStatus == 1)</string>
+               </void>
+               <void property="maxAttempts">
+                <int>20</int>
+               </void>
+               <void property="msBtwnFailure">
+                <int>10000</int>
+               </void>
+               <void property="msBtwnSuccess">
+                <int>1000</int>
+               </void>
+               <void property="priorityMax">
+                <double>20.0</double>
+               </void>
+               <void property="priorityUsed">
+                <boolean>true</boolean>
+               </void>
+               <void property="submitCommand">
+                <string>condor_submit_dag</string>
+               </void>
+              </object>
+             </void>
+             <void property="queues">
+              <void method="add">
+               <object class="gov.bnl.star.offline.scheduler.Queue" id="Queue19">
+                <void property="ID">
+                 <string>bnlCondorDAG_longQueue</string>
+                </void>
+                <void property="RDLApplicationResolver">
+                 <object idref="RDLApplicationResolver0"/>
+                </void>
+                <void property="accessMethods">
+                 <void method="add">
+                  <object idref="AccessMethod21"/>
+                 </void>
+                </void>
+                <void property="cluster">
+                 <string>rcrs.rcf.bnl.gov</string>
+                </void>
+                <void property="jobPriorityAdjust">
+                 <byte>10</byte>
+                </void>
+                <void property="maxMemory">
+                 <int>50000</int>
+                </void>
+                <void property="name">
+                 <string></string>
+                </void>
+                <void property="searchOrderPriority">
+                 <int>100</int>
+                </void>
+                <void property="site">
+                 <string>STAR</string>
+                </void>
+                <void property="timeLimit">
+                 <int>7200</int>
+                </void>
+                <void property="type">
+                 <string>CONDOR</string>
+                </void>
+               </object>
+              </void>
+             </void>
+            </object>
+           </void>
+           <void method="add">
+            <object idref="AccessMethod8"/>
+           </void>
+           <void method="add">
+            <object idref="AccessMethod10"/>
+           </void>
+          </void>
+          <void property="site">
+           <object idref="Site0"/>
+          </void>
+         </object>
+        </void>
+       </void>
+       <void property="dispatcher">
+        <object class="gov.bnl.star.offline.scheduler.Dispatchers.condorg.CondorFastDispatcher">
+         <void property="application">
+          <object idref="CSHApplication0"/>
+         </void>
+         <void property="condorOptions">
+          <string>kill_sig         = SIGINT</string>
+         </void>
+         <void property="hostNameBasedString">
+          <object idref="HostNameBasedString0"/>
+         </void>
+         <void property="maxAttempts">
+          <int>20</int>
+         </void>
+         <void property="msBtwnFailure">
+          <int>1000</int>
+         </void>
+         <void property="msBtwnSuccess">
+          <int>1000</int>
+         </void>
+         <void property="priorityMax">
+          <double>20.0</double>
+         </void>
+         <void property="priorityUsed">
+          <boolean>true</boolean>
+         </void>
+         <void property="removeCondition">
+          <string>PeriodicRemove   = (NumJobStarts &gt;=1 &amp;&amp; JobStatus==1) || (JobStatus == 2 &amp;&amp; (CurrentTime - JobCurrentStartDate &gt; (54000)) &amp;&amp; ((RemoteUserCpu+RemoteSysCpu)/(CurrentTime-JobCurrentStartDate) &lt; 0.10)) || (((CurrentTime - EnteredCurrentStatus) &gt; (2*24*3600)) &amp;&amp; JobStatus == 5) || (JobRunCount &gt;= 1 &amp;&amp; JobStatus == 1)</string>
+         </void>
+         <void property="removeConditionWithRestart">
+          <string>PeriodicRemove   = (NumJobStarts &gt;=1 &amp;&amp; JobStatus==1) || (JobStatus == 2 &amp;&amp; (CurrentTime - JobCurrentStartDate &gt; (54000)) &amp;&amp; ((RemoteUserCpu+RemoteSysCpu)/(CurrentTime-JobCurrentStartDate) &lt; 0.10)) || (((CurrentTime - EnteredCurrentStatus) &gt; (2*24*3600)) &amp;&amp; JobStatus == 5)
++IsRestartable   = true</string>
+         </void>
+         <void property="submitCommand">
+          <string>condor_submit -verbose</string>
+         </void>
+        </object>
+       </void>
+       <void property="queues">
+        <void method="add">
+         <object class="gov.bnl.star.offline.scheduler.Queue" id="Queue20">
+          <void property="ID">
+           <string>bnl_condor_medium_quick</string>
+          </void>
+          <void property="RDLApplicationResolver">
+           <object idref="RDLApplicationResolver0"/>
+          </void>
+          <void property="accessMethods">
+           <void method="add">
+            <object idref="AccessMethod0"/>
+           </void>
+          </void>
+          <void property="cluster">
+           <string>rcrs.rcf.bnl.gov</string>
+          </void>
+          <void property="maxMemory">
+           <int>50000</int>
+          </void>
+          <void property="name">
+           <string></string>
+          </void>
+          <void property="searchOrderPriority">
+           <int>50</int>
+          </void>
+          <void property="site">
+           <string>STAR</string>
+          </void>
+          <void property="timeLimit">
+           <int>4320</int>
+          </void>
+          <void property="type">
+           <string>CONDOR</string>
+          </void>
+         </object>
+        </void>
+       </void>
+      </object>
+     </void>
+     <void property="accessPoint">
+      <object idref="LocalAccessPoint0"/>
+     </void>
+     <void property="cluster">
+      <string>rcrs.rcf.bnl.gov</string>
+     </void>
+     <void property="datasetSubset">
+      <object class="gov.bnl.star.offline.scheduler.dataset.DatasetSubset">
+       <void property="dataset">
+        <object class="gov.bnl.star.offline.scheduler.dataset.Dataset">
+         <void property="datasetName">
+          <string>test_minimal830949938A05DE44AE01841AFD3419EC.dataset</string>
+         </void>
+         <void property="datasetSize">
+          <int>1</int>
+         </void>
+         <void property="entryParser">
+          <object class="gov.bnl.star.offline.scheduler.dataset.EntryParser"/>
+         </void>
+        </object>
+       </void>
+       <void property="eventsInSubset">
+        <int>1</int>
+       </void>
+       <void property="filesInSubset">
+        <int>1</int>
+       </void>
+       <void property="site">
+        <string>BNL</string>
+       </void>
+      </object>
+     </void>
+     <void property="dispatchSuccessful">
+      <boolean>true</boolean>
+     </void>
+     <void property="dispatchTime">
+      <int>1</int>
+     </void>
+     <void property="processeIDs">
+      <void method="add">
+       <string>14374665.0</string>
+      </void>
+     </void>
+     <void property="queue">
+      <string></string>
+     </void>
+     <void property="queueObj">
+      <object idref="Queue20"/>
+     </void>
+     <void property="request">
+      <object idref="Request0"/>
+     </void>
+     <void property="stderr">
+      <object class="java.net.URL" id="URL0">
+       <string>file:/star/u/oura/work/star-analysis/job/run/test_star_submit/log/stderr.$JOBID.err</string>
+      </object>
+     </void>
+     <void property="stdout">
+      <object class="java.net.URL" id="URL1">
+       <string>file:/star/u/oura/work/star-analysis/job/run/test_star_submit/log/stdout.$JOBID.out</string>
+      </object>
+     </void>
+     <void property="submitAttempt">
+      <int>1</int>
+     </void>
+     <void property="timeOfDispatch">
+      <string>10/03/2026 04:48:35AM</string>
+     </void>
+    </object>
+   </void>
+  </void>
+  <void property="name">
+   <string>test_minimal</string>
+  </void>
+  <void property="outputList">
+   <void method="add">
+    <object class="gov.bnl.star.offline.scheduler.OutputFile">
+     <void property="fromScratch">
+      <string>test_result_$JOBID.txt</string>
+     </void>
+     <void property="toURLString">
+      <string>file:/star/u/oura/work/star-analysis/job/run/test_star_submit/result/</string>
+     </void>
+    </object>
+   </void>
+   <void method="add">
+    <object class="gov.bnl.star.offline.scheduler.OutputFile">
+     <void property="fromScratch">
+      <string>test_result_$JOBID.txt</string>
+     </void>
+     <void property="toURLString">
+      <string>file:/gpfs01/star/oura/star_submit_test/</string>
+     </void>
+    </object>
+   </void>
+  </void>
+  <void property="resourceTable">
+   <void method="put">
+    <string>InputFiles</string>
+    <object class="gov.bnl.star.offline.scheduler.request.rdl.Resource">
+     <void property="max">
+      <int>1</int>
+     </void>
+     <void property="name">
+      <string>InputFiles</string>
+     </void>
+    </object>
+   </void>
+  </void>
+  <void property="sandbox">
+   <object class="gov.bnl.star.offline.scheduler.util.sandbox.LocalSandbox" id="LocalSandbox0">
+    <void property="packages">
+     <void method="add">
+      <object class="gov.bnl.star.offline.scheduler.util.sandbox.SandboxPackage" id="SandboxPackage0">
+       <void property="files">
+        <void method="add">
+         <object class="java.net.URL">
+          <string>file:/star/u/oura/work/star-analysis/README.md</string>
+         </object>
+        </void>
+       </void>
+      </object>
+     </void>
+    </void>
+    <void property="sandboxedFiles">
+     <void method="add">
+      <string>/star/u/oura/work/star-analysis/README.md</string>
+     </void>
+    </void>
+   </object>
+  </void>
+  <void property="stdErr">
+   <object idref="URL0"/>
+  </void>
+  <void property="stdOut">
+   <object idref="URL1"/>
+  </void>
+ </object>
+<void class="gov.bnl.star.offline.scheduler.util.RDLApplicationResolver" id="Field0" method="getField">
+ <string>applicationTable</string>
+ <void id="ArrayList0" method="get">
+  <object idref="RDLApplicationResolver0"/>
+  <void method="add">
+   <object class="gov.bnl.star.offline.scheduler.request.rdl.Application">
+    <void property="name">
+     <string>root4star</string>
+    </void>
+    <void property="path">
+     <string>/afs/rhic.bnl.gov/star/packages/SL04f/.sl302_gcc323/bin/</string>
+    </void>
+    <void property="type">
+     <object class="gov.bnl.star.offline.scheduler.request.rdl.RootTask"/>
+    </void>
+    <void property="version">
+     <string>3.10.01</string>
+    </void>
+   </object>
+  </void>
+  <void method="add">
+   <object class="gov.bnl.star.offline.scheduler.request.rdl.Application">
+    <void property="name">
+     <string>root</string>
+    </void>
+    <void property="path">
+     <string>/afs/rhic.bnl.gov/star/ROOT/3.10.01/.sl302_gcc323/rootdeb/bin/</string>
+    </void>
+    <void property="type">
+     <object class="gov.bnl.star.offline.scheduler.request.rdl.RootTask"/>
+    </void>
+    <void property="version">
+     <string>3.10.01</string>
+    </void>
+   </object>
+  </void>
+  <void method="add">
+   <object class="gov.bnl.star.offline.scheduler.request.rdl.Application">
+    <void property="name">
+     <string>csh</string>
+    </void>
+    <void property="path">
+     <string>/bin/</string>
+    </void>
+    <void property="type">
+     <object class="gov.bnl.star.offline.scheduler.request.rdl.ScriptTask"/>
+    </void>
+    <void property="version">
+     <string>0</string>
+    </void>
+   </object>
+  </void>
+  <void method="add">
+   <object class="gov.bnl.star.offline.scheduler.request.rdl.Application">
+    <void property="name">
+     <string>java</string>
+    </void>
+    <void property="path">
+     <string>/usr/java/j2sdk1.4.2_05/bin/</string>
+    </void>
+    <void property="type">
+     <object class="gov.bnl.star.offline.scheduler.request.rdl.JavaTask"/>
+    </void>
+    <void property="version">
+     <string>1.4.2</string>
+    </void>
+   </object>
+  </void>
+ </void>
+</void>
+<void idref="ArrayList0"/>
+</java>
+<!-- SUMS_Version_String="Simple Unified Meta Scheduler 1.10.50" -->

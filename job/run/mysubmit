@@ -1,0 +1,156 @@
+#!/bin/bash
+# Personal submit entry: official submit.sh (no --watch-merge) + personal watcher.
+# Volatile SUMS stdout/stderr and watcher logs go under $SCRATCH/star-analyzer/.
+#
+# Usage (any cwd):
+#   ./job/run/mysubmit ../joblist/joblist_<anaName>.xml
+#   ./mysubmit joblist_<anaName>.xml   # from job/run
+
+set -euo pipefail
+
+SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || realpath "${BASH_SOURCE[0]}")"
+JOB_RUN_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+PROJECT_ROOT="$(cd "$JOB_RUN_DIR/../.." && pwd)"
+WATCHER="$PROJECT_ROOT/local/watch_job_and_merge_mine.sh"
+PYTHON="$(command -v python3 2>/dev/null || command -v python 2>/dev/null)"
+
+usage() {
+  cat <<'EOF'
+Usage: mysubmit <joblist.xml>
+
+Personal wrapper around job/run/submit.sh:
+  - Rewrites stdout/stderr to $SCRATCH/star-analyzer/<anaName>/sums_{log,err}/
+    (stable dirs so Condor keeps writing after jobid is known)
+  - Submits via official ./submit.sh (without --watch-merge)
+  - Starts local/watch_job_and_merge_mine.sh (merge -> PDF -> Discord)
+
+Requires SCRATCH (echo $SCRATCH). Optional: $PROJECT_ROOT/.discord_webhook
+
+Scratch layout:
+  $SCRATCH/star-analyzer/<anaName>/sums_log|sums_err/   # SUMS stdout/stderr
+  $SCRATCH/star-analyzer/<anaName>/<jobid>/{watch,progress}/
+EOF
+}
+
+die() {
+  echo "ERROR: $*" >&2
+  exit 1
+}
+
+[[ $# -ge 1 ]] || { usage >&2; exit 1; }
+[[ "$1" != "-h" && "$1" != "--help" ]] || { usage; exit 0; }
+[[ $# -eq 1 ]] || die "only a joblist path is accepted (got $# args)"
+
+[[ -n "${SCRATCH:-}" ]] || die "SCRATCH is unset; run: echo \$SCRATCH"
+[[ -n "$PYTHON" ]] || die "python3/python is required"
+[[ -x "$JOB_RUN_DIR/submit.sh" ]] || die "official submit.sh not found: $JOB_RUN_DIR/submit.sh"
+[[ -f "$WATCHER" ]] || die "personal watcher not found: $WATCHER"
+chmod +x "$WATCHER" 2>/dev/null || true
+
+JOBLIST_IN="$1"
+if [[ "$JOBLIST_IN" != /* ]]; then
+  JOBLIST_IN="$(cd "$(dirname "$JOBLIST_IN")" && pwd)/$(basename "$JOBLIST_IN")"
+fi
+[[ -f "$JOBLIST_IN" ]] || die "joblist not found: $JOBLIST_IN"
+
+base="$(basename "$JOBLIST_IN")"
+[[ "$base" == joblist_*.xml ]] || die "expected joblist_<anaName>.xml, got: $base"
+ANA_NAME="${base#joblist_}"
+ANA_NAME="${ANA_NAME%.xml}"
+[[ -n "$ANA_NAME" ]] || die "could not parse anaName from $base"
+
+ANA_SCRATCH="${SCRATCH}/star-analyzer/${ANA_NAME}"
+LOG_DIR="${ANA_SCRATCH}/sums_log"
+ERR_DIR="${ANA_SCRATCH}/sums_err"
+STAGE_DIR="${ANA_SCRATCH}/_mysubmit_$$"
+mkdir -p "$LOG_DIR" "$ERR_DIR" "$STAGE_DIR"
+# Must keep joblist_<anaName>.xml naming: official submit.sh derives anaName from basename.
+TEMP_JOBLIST="$STAGE_DIR/joblist_${ANA_NAME}.xml"
+
+echo "mysubmit: anaName=$ANA_NAME"
+echo "mysubmit: SUMS log=$LOG_DIR"
+echo "mysubmit: SUMS err=$ERR_DIR"
+echo "mysubmit: rewriting stdout/stderr -> SCRATCH"
+
+"$PYTHON" - "$JOBLIST_IN" "$TEMP_JOBLIST" "$LOG_DIR" "$ERR_DIR" <<'PY'
+import re
+import sys
+
+src, dst, log_dir, err_dir = sys.argv[1:5]
+with open(src, "r") as handle:
+    text = handle.read()
+
+def repl_stdout(_match):
+    return 'stdout URL="file:%s/stdout.$JOBID.out"' % log_dir
+
+def repl_stderr(_match):
+    return 'stderr URL="file:%s/stderr.$JOBID.err"' % err_dir
+
+text2, n1 = re.subn(r'stdout\s+URL="file:[^"]*"', repl_stdout, text, count=1, flags=re.I)
+text2, n2 = re.subn(r'stderr\s+URL="file:[^"]*"', repl_stderr, text2, count=1, flags=re.I)
+if n1 < 1 or n2 < 1:
+    sys.stderr.write(
+        "ERROR: could not rewrite stdout/stderr URLs (stdout=%s stderr=%s)\n" % (n1, n2)
+    )
+    sys.exit(1)
+with open(dst, "w") as handle:
+    handle.write(text2)
+PY
+
+SUBMIT_OUT="$(mktemp)"
+cleanup() {
+  rm -f "$SUBMIT_OUT"
+  rm -rf "$STAGE_DIR"
+}
+trap cleanup EXIT
+
+echo "mysubmit: calling official submit.sh (no --watch-merge)"
+set +e
+(
+  cd "$JOB_RUN_DIR"
+  ./submit.sh "$TEMP_JOBLIST" 2>&1 | tee "$SUBMIT_OUT"
+  exit "${PIPESTATUS[0]}"
+)
+submit_rc=$?
+set -e
+
+jobid=""
+if report_line=$(grep "Wrote scheduling report to" "$SUBMIT_OUT" 2>/dev/null | tail -1); then
+  report_path=$(echo "$report_line" | sed 's/.*: *//' | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+  if [[ -n "$report_path" ]]; then
+    report_basename=$(basename "$report_path" .report)
+    jobid="${report_basename#$ANA_NAME}"
+  fi
+fi
+if [[ -z "$jobid" ]]; then
+  jobid=$(grep -oE '[0-9A-Fa-f]{32}' "$SUBMIT_OUT" 2>/dev/null | head -1 || true)
+fi
+
+if [[ -z "$jobid" ]]; then
+  echo "ERROR: could not extract jobid; personal watcher not started (submit_rc=$submit_rc)" >&2
+  exit "${submit_rc:-1}"
+fi
+
+FINAL_DIR="${ANA_SCRATCH}/${jobid}"
+mkdir -p "$FINAL_DIR/watch" "$FINAL_DIR/progress" "$FINAL_DIR/log" "$FINAL_DIR/err"
+# Convenience symlinks for this jobid's SUMS logs (actual files stay in sums_log/err).
+ln -sfn "$LOG_DIR" "$FINAL_DIR/log/sums_log"
+ln -sfn "$ERR_DIR" "$FINAL_DIR/err/sums_err"
+
+echo "mysubmit: jobid=$jobid"
+echo "mysubmit: job scratch=$FINAL_DIR"
+
+RUNMETA="$JOB_RUN_DIR/runmeta/runmeta_${ANA_NAME}_${jobid}.json"
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  [[ -f "$RUNMETA" ]] && break
+  sleep 0.5
+done
+[[ -f "$RUNMETA" ]] || die "runmeta not found after submit: $RUNMETA"
+
+WATCH_LOG="$FINAL_DIR/watch/watchmerge_mine.log"
+nohup "$WATCHER" --runmeta "$RUNMETA" >> "$WATCH_LOG" 2>&1 &
+watch_pid=$!
+echo "mysubmit: personal watcher started (PID $watch_pid)"
+echo "mysubmit: watcher log: $WATCH_LOG"
+
+exit "$submit_rc"

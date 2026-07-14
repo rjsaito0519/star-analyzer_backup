@@ -1,0 +1,553 @@
+diff --git a/StMaker/StLambdaMaker/StLambdaMaker.cxx b/StMaker/StLambdaMaker/StLambdaMaker.cxx
+index f605e9d..5e32e5a 100644
+--- a/StMaker/StLambdaMaker/StLambdaMaker.cxx
++++ b/StMaker/StLambdaMaker/StLambdaMaker.cxx
+@@ -87,7 +87,13 @@ Int_t StLambdaMaker::Init() {
+ }
+ 
+ //-----------------------------------------------------------------------------
+-void StLambdaMaker::Clear(Option_t* opt) {}
++void StLambdaMaker::Clear(Option_t* opt) {
++  StMaker::Clear(opt);
++  mLambdaMom.clear();
++  mLambdaInvMass.clear();
++  mLambdaProtonId.clear();
++  mLambdaPionId.clear();
++}
+ 
+ //-----------------------------------------------------------------------------
+ Bool_t StLambdaMaker::PassEventCuts(Int_t nTracks) {
+@@ -332,6 +338,11 @@ Int_t StLambdaMaker::Make() {
+       lpi.SetVectM(momPi, kPionMass);
+       Double_t invMass = (lp + lpi).M();
+ 
++      mLambdaMom.push_back(pLam);
++      mLambdaInvMass.push_back(invMass);
++      mLambdaProtonId.push_back(p->id());
++      mLambdaPionId.push_back(pi->id());
++
+       if (m_histManager) {
+         m_histManager->Fill("hLambda_InvMass", invMass);
+         m_histManager->Fill("hLambda_Pt", pLam.Pt());
+diff --git a/StMaker/StLambdaMaker/StLambdaMaker.h b/StMaker/StLambdaMaker/StLambdaMaker.h
+index 4dcab4b..29513e9 100644
+--- a/StMaker/StLambdaMaker/StLambdaMaker.h
++++ b/StMaker/StLambdaMaker/StLambdaMaker.h
+@@ -3,6 +3,8 @@
+ 
+ #include "StMaker.h"
+ #include "StarClassLibrary/StPhysicalHelixD.hh"
++#include "TVector3.h"
++#include <vector>
+ 
+ class StPicoDst;
+ class StPicoDstMaker;
+@@ -29,6 +31,10 @@ public:
+   virtual Int_t Finish();
+ 
+   void WriteHistograms();
++  const std::vector<TVector3>& GetLambdaMomList() const { return mLambdaMom; }
++  const std::vector<Double_t>& GetLambdaInvMassList() const { return mLambdaInvMass; }
++  const std::vector<Int_t>& GetLambdaProtonIdList() const { return mLambdaProtonId; }
++  const std::vector<Int_t>& GetLambdaPionIdList() const { return mLambdaPionId; }
+ 
+ private:
+   StPicoDstMaker* mPicoDstMaker;
+@@ -42,6 +48,10 @@ private:
+   Double_t m_refMultCorr;
+   Double_t m_centWeight;
+   Double_t m_centralityPercent;
++  std::vector<TVector3> mLambdaMom;
++  std::vector<Double_t> mLambdaInvMass;
++  std::vector<Int_t> mLambdaProtonId;
++  std::vector<Int_t> mLambdaPionId;
+ 
+   Bool_t PassEventCuts(Int_t nTracks);
+   Bool_t PassProtonCuts(StPicoTrack* trk, const TVector3& pVtx);
+diff --git a/StMaker/StNuclearIdMaker/StNuclearIdMaker.cxx b/StMaker/StNuclearIdMaker/StNuclearIdMaker.cxx
+index d9acd92..0139f69 100644
+--- a/StMaker/StNuclearIdMaker/StNuclearIdMaker.cxx
++++ b/StMaker/StNuclearIdMaker/StNuclearIdMaker.cxx
+@@ -6,6 +6,7 @@
+ #include "StPicoEvent/StPicoBTofPidTraits.h"
+ #include "ConfigManager.h"
+ #include "cuts/NuclearIdCutConfig.h"
++#include "cuts/EventCutConfig.h"
+ #include "HistManager.h"
+ #include "TH2D.h"
+ #include "TFile.h"
+@@ -114,6 +115,9 @@ Int_t StNuclearIdMaker::Init() {
+ 
+ void StNuclearIdMaker::Clear(Option_t* opt) {
+   StMaker::Clear(opt);
++  mNuclearMom.clear();
++  mNuclearId.clear();
++  mNuclearType.clear();
+ }
+ 
+ Int_t StNuclearIdMaker::Make() {
+@@ -225,6 +229,60 @@ Int_t StNuclearIdMaker::Make() {
+       }
+     }
+ 
++    // Populate mNuclearList
++    bool is_d   = (fabs(nSigma_d) < cuts.maxNSigmaNuclear);
++    bool is_t   = (fabs(nSigma_t) < cuts.maxNSigmaNuclear);
++    bool is_3He = (fabs(nSigma_3He) < cuts.maxNSigmaNuclear);
++    bool is_4He = (fabs(nSigma_4He) < cuts.maxNSigmaNuclear);
++
++    if (cuts.m2_selection) {
++      bool hasTof = false;
++      double beta_val = -1.0;
++      double m2_val = -1.0;
++      if (trk->isTofTrack()) {
++        int idx = trk->bTofPidTraitsIndex();
++        if (idx >= 0) {
++          StPicoBTofPidTraits* btof = mPicoDst->btofPidTraits(idx);
++          if (btof) {
++            beta_val = btof->btofBeta();
++            if (beta_val > 0) {
++              hasTof = true;
++              m2_val = p*p*(1.0/(beta_val*beta_val) - 1.0);
++            }
++          }
++        }
++      }
++
++      if (!hasTof) {
++        is_d = is_t = is_3He = is_4He = false;
++      } else {
++        // Apply m2 mass window cuts
++        is_d = is_d && (m2_val > d_mean   - cuts.m2SigmaCut * d_sigma   && m2_val < d_mean   + cuts.m2SigmaCut * d_sigma);
++        is_t = is_t && (m2_val > t_mean   - cuts.m2SigmaCut * t_sigma   && m2_val < t_mean   + cuts.m2SigmaCut * t_sigma);
++        is_3He = is_3He && (m2_val > He3_mean - cuts.m2SigmaCut * He3_sigma && m2_val < He3_mean + cuts.m2SigmaCut * He3_sigma);
++        is_4He = is_4He && (m2_val > cuts.minM2_M2cut && m2_val < cuts.maxM2_M2cut);
++      }
++    }
++
++    if (is_d || is_t || is_3He || is_4He) {
++      int best_type = -1;
++      double min_nSigma = 999.0;
++      if (is_d && fabs(nSigma_d) < min_nSigma) { min_nSigma = fabs(nSigma_d); best_type = 0; }
++      if (is_t && fabs(nSigma_t) < min_nSigma) { min_nSigma = fabs(nSigma_t); best_type = 1; }
++      if (is_3He && fabs(nSigma_3He) < min_nSigma) { min_nSigma = fabs(nSigma_3He); best_type = 2; }
++      if (is_4He && fabs(nSigma_4He) < min_nSigma) { min_nSigma = fabs(nSigma_4He); best_type = 3; }
++
++      if (best_type >= 0) {
++        TVector3 act_pMom = pMom;
++        if (best_type == 2 || best_type == 3) {
++          act_pMom = 2.0 * pMom;
++        }
++        mNuclearMom.push_back(act_pMom);
++        mNuclearId.push_back(trk->id());
++        mNuclearType.push_back(best_type);
++      }
++    }
++
+     if (!trk->isTofTrack()) {
+       if (m_histManager) m_histManager->Fill("hDedxP_cut", p, dedx);
+       continue;
+@@ -278,3 +336,20 @@ Int_t StNuclearIdMaker::Finish() {
+ void StNuclearIdMaker::WriteHistograms() {
+   if (m_histManager) m_histManager->Write();
+ }
++
++void StNuclearIdMaker::FillKstar(Double_t k_star, Double_t q_lab, Int_t type) {
++  if (!m_histManager) return;
++  if (type == 0) {
++    m_histManager->Fill("hKstar_d", k_star);
++    m_histManager->Fill("hQlab_d", q_lab);
++  } else if (type == 1) {
++    m_histManager->Fill("hKstar_t", k_star);
++    m_histManager->Fill("hQlab_t", q_lab);
++  } else if (type == 2) {
++    m_histManager->Fill("hKstar_3He", k_star);
++    m_histManager->Fill("hQlab_3He", q_lab);
++  } else if (type == 3) {
++    m_histManager->Fill("hKstar_4He", k_star);
++    m_histManager->Fill("hQlab_4He", q_lab);
++  }
++}
+diff --git a/StMaker/StNuclearIdMaker/StNuclearIdMaker.h b/StMaker/StNuclearIdMaker/StNuclearIdMaker.h
+index 87d45a2..798f007 100644
+--- a/StMaker/StNuclearIdMaker/StNuclearIdMaker.h
++++ b/StMaker/StNuclearIdMaker/StNuclearIdMaker.h
+@@ -3,6 +3,8 @@
+ 
+ #include "StMaker.h"
+ #include "TString.h"
++#include "TVector3.h"
++#include <vector>
+ 
+ class StPicoDst;
+ class StPicoDstMaker;
+@@ -22,12 +24,20 @@ class StNuclearIdMaker : public StMaker {
+   virtual Int_t Finish();
+ 
+   void WriteHistograms();
++  const std::vector<TVector3>& GetNuclearMomList() const { return mNuclearMom; }
++  const std::vector<Int_t>& GetNuclearIdList() const { return mNuclearId; }
++  const std::vector<Int_t>& GetNuclearTypeList() const { return mNuclearType; }
++
++  void FillKstar(Double_t k_star, Double_t q_lab, Int_t type);
+ 
+  private:
+   StPicoDstMaker* mPicoDstMaker;
+   StPicoDst* mPicoDst;
+   TString mOutName;
+   HistManager* m_histManager;
++  std::vector<TVector3> mNuclearMom;
++  std::vector<Int_t> mNuclearId;
++  std::vector<Int_t> mNuclearType;
+ };
+ 
+ // Factory for CINT
+diff --git a/analysis/anaLambdaNuclearId.C b/analysis/anaLambdaNuclearId.C
+index 0e0d58d..db50151 100644
+--- a/analysis/anaLambdaNuclearId.C
++++ b/analysis/anaLambdaNuclearId.C
+@@ -17,6 +17,26 @@
+ #include "ConfigManager.h"
+ #include <iostream>
+ #include <fstream>
++#include <vector>
++#include "TLorentzVector.h"
++#include "TMath.h"
++#include "StPicoEvent/StPicoDst.h"
++#include "StPicoEvent/StPicoEvent.h"
++#include "StPicoEvent/StPicoTrack.h"
++#include "StMaker/common/CentralityHelper.h"
++#include "cuts/EventCutConfig.h"
++#include "cuts/NuclearIdCutConfig.h"
++#include "cuts/CentralityCutConfig.h"
++
++namespace {
++  const Double_t kProtonMass = 0.938272;
++  const Double_t kPionMass   = 0.139570;
++
++  const Double_t M_d   = 1.87561;
++  const Double_t M_t   = 2.80892;
++  const Double_t M_3He = 2.80839;
++  const Double_t M_4He = 3.72742;
++}
+ 
+ StChain* chain = 0;
+ StLambdaMaker* lambdaMaker = 0;
+@@ -107,6 +127,11 @@ void anaLambdaNuclearId(const Char_t* inputFile = "config/picoDstList/auau19GeV_
+ 
+   if (nEvents > totalEntries) nEvents = totalEntries;
+ 
++  // Initialize CentralityHelper for event-level QA and cuts
++  CentralityHelper centrality;
++  if (!centrality.Init(ConfigManager::GetInstance().GetCentralityCuts())) {
++    std::cerr << "WARNING: CentralityHelper initialization failed in macro" << std::endl;
++  }
+   for (Long64_t i = 0; i < nEvents; i++) {
+     if (i % 1000 == 0) std::cout << "Working on event " << i << std::endl;
+     chain->Clear();
+@@ -115,6 +140,128 @@ void anaLambdaNuclearId(const Char_t* inputFile = "config/picoDstList/auau19GeV_
+       std::cerr << "Bad return code: " << iret << " at event " << i << std::endl;
+       break;
+     }
++    StPicoDst* picoDst = picoMaker->picoDst();
++    if (!picoDst) continue;
++    StPicoEvent* event = picoDst->event();
++    if (!event) continue;
++
++    TVector3 pVtx = event->primaryVertex();
++    Int_t refMult = event->refMult();
++    const Int_t runId = event->runId();
++    const Int_t nBTOFMatch = event->nBTOFMatch();
++    const Double_t vz = pVtx.Z();
++
++    CentralityCutConfig& centCfg = ConfigManager::GetInstance().GetCentralityCuts();
++    Int_t rawMult = refMult;
++    if (centCfg.enabled) {
++      TString mode(centCfg.mode.c_str());
++      mode.ToLower();
++      if (mode == "fxtmult") {
++        rawMult = event->fxtMult();
++      }
++    }
++
++    Int_t cent9 = -1;
++    Int_t cent16 = -1;
++    Double_t refMultCorr = -1.0;
++    Double_t centWeight = 1.0;
++
++    CentralityRejectReason centReason = kCentralityOk;
++    if (centrality.IsEnabled()) {
++      if (!centrality.CheckBadRun(runId, centReason)) continue;
++      if (!centrality.CheckPileup(rawMult, nBTOFMatch, vz, centReason)) continue;
++      if (!centrality.ComputeBins(event, rawMult, vz, cent9, cent16, refMultCorr, centWeight, centReason)) continue;
++      if (!centrality.AcceptCentBin(cent9, centReason)) continue;
++    }
++
++    // Pass event cuts from EventCutConfig
++    // EventCutConfig& evCuts = ConfigManager::GetInstance().GetEventCuts();
++    // Int_t nTr = picoDst->numberOfTracks();
++    // if (evCuts.maxNTr > 0 && nTr > evCuts.maxNTr) continue;
++
++    // double vr = pVtx.Perp();
++    // if (vz < evCuts.minVz || vz > evCuts.maxVz) continue;
++    // if (vr >= evCuts.maxVr) continue;
++    // if (evCuts.maxVzDiff > 0) {
++    //   double vzVpd = event->vzVpd();
++    //   if (fabs(vzVpd) < evCuts.maxAbsVzVpd) {
++    //     if (fabs(vz - vzVpd) >= evCuts.maxVzDiff) continue;
++    //   }
++    // }
++
++    // 1. Retrieve reconstructed Lambda and Nuclear candidates from the makers
++    const std::vector<TVector3>& lamMoms = lambdaMaker->GetLambdaMomList();
++    const std::vector<Double_t>& lamMasses = lambdaMaker->GetLambdaInvMassList();
++    const std::vector<Int_t>& lamProtonIds = lambdaMaker->GetLambdaProtonIdList();
++    const std::vector<Int_t>& lamPionIds = lambdaMaker->GetLambdaPionIdList();
++
++    const std::vector<TVector3>& nucMoms = nuclearidMaker->GetNuclearMomList();
++    const std::vector<Int_t>& nucIds = nuclearidMaker->GetNuclearIdList();
++    const std::vector<Int_t>& nucTypes = nuclearidMaker->GetNuclearTypeList();
++
++    NuclearIdCutConfig& nucCuts = ConfigManager::GetInstance().GetNuclearIdCuts();
++
++    if (lamMoms.size() > 0 || nucMoms.size() > 0) {
++    //  std::cout << "DEBUG Event " << i << ": lamMoms=" << lamMoms.size() << ", nucMoms=" << nucMoms.size() << std::endl;
++    }
++
++    const Double_t kLambdaMass = 1.115683; // Lambda PDG mass
++
++    // 2. Correlate Lambdas and Nuclei
++    for (size_t il = 0; il < lamMoms.size(); il++) {
++      double invMass = lamMasses[il];
++
++      // Enforce the mass selection window (from NuclearIdCutConfig)
++      if (TMath::Abs(invMass - nucCuts.MeanLambda) > nucCuts.nsigmaLambda * nucCuts.sigmaLambda) continue;
++
++      // Construct Lambda TLorentzVector using PDG mass
++      TLorentzVector lambdaMom;
++      lambdaMom.SetVectM(lamMoms[il], kLambdaMass);
++
++      for (size_t in = 0; in < nucMoms.size(); in++) {
++        // Self-correlation cut: nucleus track cannot be one of the Lambda daughter tracks
++        if (nucIds[in] == lamProtonIds[il] || nucIds[in] == lamPionIds[il]) continue;
++
++        // Construct Nucleus TLorentzVector using PDG mass
++        double mass = 0;
++        int nucType = nucTypes[in];
++        if (nucType == 0) {
++          mass = M_d;
++        } else if (nucType == 1) {
++          mass = M_t;
++        } else if (nucType == 2) {
++          mass = M_3He;
++        } else if (nucType == 3) {
++          mass = M_4He;
++        }
++
++        TLorentzVector nMom;
++        nMom.SetVectM(nucMoms[in], mass);
++
++        // Lab frame relative momentum q_lab = |p_lambda - p_nucleus|
++        TVector3 p3_lam = lambdaMom.Vect();
++        TVector3 p3_nuc = nMom.Vect();
++        double q_lab = (p3_lam - p3_nuc).Mag();
++
++        // Rest frame relative momentum k* (momentum of either particle in rest frame of the pair)
++        TLorentzVector pair = lambdaMom + nMom;
++        TVector3 boostVec = -pair.BoostVector();
++        TLorentzVector lamRest = lambdaMom;
++        lamRest.Boost(boostVec);
++        double k_star = lamRest.P();
++
++        // Fill histograms based on nucleus type
++        if (nuclearidMaker) {
++          nuclearidMaker->FillKstar(k_star, q_lab, nucType);
++          
++          static int pairCount = 0;
++          if (pairCount < 50) {
++            std::cout << "DEBUG Pair " << pairCount << ": k_star=" << k_star << ", q_lab=" << q_lab << " (type=" << nucType << ")" << std::endl;
++            pairCount++;
++          }
++        }
++      }
++    }
+   }
+ 
+   std::cout << "******************************************" << std::endl;
+@@ -137,6 +284,7 @@ void anaLambdaNuclearId(const Char_t* inputFile = "config/picoDstList/auau19GeV_
+         std::cout << "Writing NuclearId histograms..." << std::endl;
+         nuclearidMaker->WriteHistograms();
+       }
++
+       fout->Close();
+       delete fout;
+       std::cout << "Successfully saved all histograms to " << outputFile << std::endl;
+@@ -145,6 +293,8 @@ void anaLambdaNuclearId(const Char_t* inputFile = "config/picoDstList/auau19GeV_
+     }
+   }
+ 
++
++
+   timer.Stop();
+   std::cout << "Processed events: " << nEvents << std::endl;
+   std::cout << "RealTime: " << timer.RealTime() << " CpuTime: " << timer.CpuTime() << std::endl;
+diff --git a/debug_run.C b/debug_run.C
+new file mode 100644
+index 0000000..b51293b
+--- /dev/null
++++ b/debug_run.C
+@@ -0,0 +1,13 @@
++void debug_run() {
++  gROOT->LoadMacro("$STAR/StRoot/StMuDSTMaker/COMMON/macros/loadSharedLibraries.C");
++  loadSharedLibraries();
++  gSystem->Load("StPicoEvent");
++  gSystem->Load("StPicoDstMaker");
++  gSystem->Load("libStarAnaConfig");
++  gSystem->Load("libStRefMultCorr");
++  gSystem->Load("libStLambdaMaker");
++  gSystem->Load("libStNuclearIdMaker");
++
++  gROOT->ProcessLine(".L analysis/anaLambdaNuclearId.C+");
++  anaLambdaNuclearId("config/picoDstList/auau13p5GeV.list", "rootfile/auau13p5_anaLambdaNuclearId/tmp_debug.root", "0", 100, "config/mainconf/main_auau13p5_anaLambdaNuclearId.yaml");
++}
+diff --git a/include/cuts/NuclearIdCutConfig.h b/include/cuts/NuclearIdCutConfig.h
+index 8ce38fb..70a3432 100644
+--- a/include/cuts/NuclearIdCutConfig.h
++++ b/include/cuts/NuclearIdCutConfig.h
+@@ -15,12 +15,18 @@ public:
+ 
+   // TOF m2
+   Double_t m2SigmaCut;
++  Bool_t m2_selection;
+ 
+   // General phase space / noise exclusion
+   Double_t minP_M2cut;
+   Double_t minM2_M2cut;
+   Double_t maxM2_M2cut;
+ 
++  // Lambda selection cuts
++  Double_t MeanLambda;
++  Double_t sigmaLambda;
++  Double_t nsigmaLambda;
++
+   void SetDefaults();
+ 
+ private:
+diff --git a/list_keys.C b/list_keys.C
+new file mode 100644
+index 0000000..be6fbaa
+--- /dev/null
++++ b/list_keys.C
+@@ -0,0 +1,17 @@
++void list_keys() {
++  TFile* f = new TFile("rootfile/auau13p5_anaLambdaNuclearId/tmp_relamom.root", "READ");
++  if (!f || f->IsZombie()) return;
++  TIter next(f->GetListOfKeys());
++  TKey *key;
++  while ((key = (TKey*)next())) {
++    TString name = key->GetName();
++    short cycle = key->GetCycle();
++    if (name == "hLambda_InvMass" || name == "hDedxP" || name == "hKstar_d") {
++      TH1* h = (TH1*)key->ReadObj();
++      if (h) {
++        std::cout << name << ";" << cycle << " entries: " << h->GetEntries() << std::endl;
++      }
++    }
++  }
++  f->Close();
++}
+diff --git a/script/setup_config_from_analysisinfo.py b/script/setup_config_from_analysisinfo.py
+index bc3a867..ea299de 100755
+--- a/script/setup_config_from_analysisinfo.py
++++ b/script/setup_config_from_analysisinfo.py
+@@ -353,6 +353,26 @@ def main():
+             shutil.copy2(maker_src, maker_dst)
+             print("Created: {}".format(os.path.relpath(maker_dst, config_base)))
+ 
++    # hist: template based on analysis name -> hist/hist_{anaName}.yaml
++    if 'lambdanucle' in ana_name.lower():
++        system_match = re.match(r'^([a-zA-Z0-9\.]+)_ana', ana_name)
++        system = system_match.group(1) if system_match else 'auau19'
++        
++        hist_files = [
++            ('hist_anaLambda.yaml', 'hist_{}_anaLambda.yaml'.format(system)),
++            ('hist_anaNuclearId.yaml', 'hist_{}_anaNuclearId.yaml'.format(system)),
++            ('hist_anaLambdaNuclearId.yaml', 'hist_{}_anaLambdaNuclearId.yaml'.format(system))
++        ]
++        
++        for src_name, dst_name in hist_files:
++            hist_src = os.path.join(config_base, 'hist', src_name)
++            hist_dst = os.path.join(config_base, 'hist', dst_name)
++            if not os.path.isfile(hist_src):
++                print("WARNING: hist template not found, skip: {}".format(src_name))
++            else:
++                shutil.copy2(hist_src, hist_dst)
++                print("Created: {}".format(os.path.relpath(hist_dst, config_base)))
++
+     write_mainconf(config_base, ana_name, analysis_rel)
+ 
+     # generate macros if base macros are defined
+diff --git a/src/cuts/NuclearIdCutConfig.cpp b/src/cuts/NuclearIdCutConfig.cpp
+index 899bd65..ff921fe 100644
+--- a/src/cuts/NuclearIdCutConfig.cpp
++++ b/src/cuts/NuclearIdCutConfig.cpp
+@@ -21,9 +21,15 @@ void NuclearIdCutConfig::SetDefaults() {
+   nSigmaExclude = 2.0;
+   maxNSigmaNuclear = 2.0;
+   m2SigmaCut = 1.5;
++  m2_selection = kFALSE;
+   minP_M2cut = 0.2;
+   minM2_M2cut = 0.01;
+   maxM2_M2cut = 10.0;
++
++  // Lambda selection defaults
++  MeanLambda = 1.11596;
++  sigmaLambda = 2.96e-03;
++  nsigmaLambda = 2.0;
+ }
+ 
+ Bool_t NuclearIdCutConfig::LoadFromFile(const Char_t* filename) {
+@@ -50,6 +56,9 @@ Bool_t NuclearIdCutConfig::ParseYamlFile(const Char_t* filename) {
+   if (values.find("m2SigmaCut") != values.end()) {
+     m2SigmaCut = YamlParser::ToDouble(values["m2SigmaCut"], m2SigmaCut);
+   }
++  if (values.find("m2_selection") != values.end()) {
++    m2_selection = YamlParser::ToBool(values["m2_selection"], m2_selection);
++  }
+   if (values.find("minP_M2cut") != values.end()) {
+     minP_M2cut = YamlParser::ToDouble(values["minP_M2cut"], minP_M2cut);
+   }
+@@ -59,6 +68,15 @@ Bool_t NuclearIdCutConfig::ParseYamlFile(const Char_t* filename) {
+   if (values.find("maxM2_M2cut") != values.end()) {
+     maxM2_M2cut = YamlParser::ToDouble(values["maxM2_M2cut"], maxM2_M2cut);
+   }
++  if (values.find("MeanLambda") != values.end()) {
++    MeanLambda = YamlParser::ToDouble(values["MeanLambda"], MeanLambda);
++  }
++  if (values.find("sigmaLambda") != values.end()) {
++    sigmaLambda = YamlParser::ToDouble(values["sigmaLambda"], sigmaLambda);
++  }
++  if (values.find("nsigmaLambda") != values.end()) {
++    nsigmaLambda = YamlParser::ToDouble(values["nsigmaLambda"], nsigmaLambda);
++  }
+ 
+   return kTRUE;
+ }
+diff --git a/test_config.C b/test_config.C
+new file mode 100644
+index 0000000..4249336
+--- /dev/null
++++ b/test_config.C
+@@ -0,0 +1,12 @@
++void test_config() {
++  gSystem->Load("lib/libStarAnaConfig.so");
++  gInterpreter->AddIncludePath(".");
++  gInterpreter->AddIncludePath("./include");
++  gROOT->ProcessLine(".L src/cuts/NuclearIdCutConfig.cpp+");
++
++  NuclearIdCutConfig cuts;
++  cuts.LoadFromFile("config/cuts/nuclearid/nuclearid_auau13p5_anaLambdaNuclearId.yaml");
++  std::cout << "MeanLambda = " << cuts.MeanLambda << std::endl;
++  std::cout << "sigmaLambda = " << cuts.sigmaLambda << std::endl;
++  std::cout << "nsigmaLambda = " << cuts.nsigmaLambda << std::endl;
++}

@@ -1,0 +1,8 @@
+# Copy to .discord_webhook and put ONE Discord webhook URL on a line (no quotes).
+# This is for backup sync/commit status only — separate from mysubmit notifications.
+#
+#   cp .discord_webhook.example .discord_webhook
+#   $EDITOR .discord_webhook
+#
+# Example line:
+# https://discord.com/api/webhooks/000000000000000000/xxxxxxxx

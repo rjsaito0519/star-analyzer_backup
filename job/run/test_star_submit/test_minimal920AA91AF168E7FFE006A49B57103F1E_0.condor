@@ -1,0 +1,14 @@
+Universe         = vanilla
+Notification     = never
+Executable       = /bin/sh
+Arguments        = "-c 'exec /star/u/oura/work/star-analysis/job/run/test_star_submit/test_minimal920AA91AF168E7FFE006A49B57103F1E_0.csh'"
+Output           = /star/u/oura/work/star-analysis/job/run/test_star_submit/log/stdout.920AA91AF168E7FFE006A49B57103F1E_0.out
+Error            = /star/u/oura/work/star-analysis/job/run/test_star_submit/log/stderr.920AA91AF168E7FFE006A49B57103F1E_0.err
+Log              = /tmp/oura/sched920AA91AF168E7FFE006A49B57103F1E.condor.log
+Initialdir       = /star/u/oura/work/star-analysis/job/run/test_star_submit
+kill_sig         = SIGINT
+PeriodicRemove   = (NumJobStarts >=1 && JobStatus==1) || (JobStatus == 2 && (CurrentTime - JobCurrentStartDate > (54000)) && ((RemoteUserCpu+RemoteSysCpu)/(CurrentTime-JobCurrentStartDate) < 0.10)) || (((CurrentTime - EnteredCurrentStatus) > (2*24*3600)) && JobStatus == 5) || (JobRunCount >= 1 && JobStatus == 1)
+Accounting_group = group_star.cas
+Priority         = +10
+Queue
+

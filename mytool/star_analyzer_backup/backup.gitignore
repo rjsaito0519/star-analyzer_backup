@@ -1,0 +1,28 @@
+# Secrets and local-only (never publish to star-analyzer_backup)
+.discord_webhook
+**/.discord_webhook
+**/config.env
+mytool/star_analyzer_backup/.discord_webhook
+mytool/star_analyzer_backup/config.env
+
+# Editor / temp
+*~
+*.sw[op]
+\#*#
+
+# Build / data (defense in depth if rsync misses)
+lib/
+rootfile/
+share/
+log/
+err/
+backup/
+.cursor/
+*.root
+*.so
+*.pcm
+*.o
+*.dylib
+*.pdf
+*.log
+*.out

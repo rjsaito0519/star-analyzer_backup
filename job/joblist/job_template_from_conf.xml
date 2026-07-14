@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<!--
+  SUMS job template: fill placeholders from analysis_info (via analysis_info_helper.py, option generate-joblist).
+  Placeholders: __JOB_NAME__, __RUN_MACRO__, __STARVER__, __SCRATCH_SUBDIR__, __OUTPUT_FILE_STEM__,
+  __MAINCONF__, __MAX_EVENTS__, __WORK_DIR__, __LOG_DIR__, __ERR_DIR__, __CATALOG_URL__, __N_FILES__, __ANA_SO_PREFIX__
+-->
+
+<job name="__JOB_NAME__" simulateSubmission="false" maxFilesPerProcess="1" fileListSyntax="xrootd" copyInputLocally="true">
+
+  <command>
+    starver __STARVER__
+    mkdir -p $SCRATCH/__SCRATCH_SUBDIR__
+    set runtime_dir="$SCRATCH/runtime_bundle"
+    /bin/rm -rf "$runtime_dir"
+    /bin/mkdir -p "$runtime_dir"
+    foreach d (analysis config lib include StMaker StRoot .sl73_x8664_gcc485)
+      if ( -e "$d" ) then
+        /bin/cp -RL "$d" "$runtime_dir/"
+      endif
+    end
+    /bin/rm -f "$runtime_dir/analysis/"*_C.* 2>/dev/null
+    cd "$runtime_dir"
+    setenv LD_LIBRARY_PATH ${runtime_dir}/lib:${LD_LIBRARY_PATH}
+    singularity exec -B /star/nfs4/AFS:/star/nfs4/AFS -B /home/starlib:/home/starlib --env LD_LIBRARY_PATH="$LD_LIBRARY_PATH" /cvmfs/singularity.opensciencegrid.org/star-bnl/star-sw:latest /bin/bash -lc 'export STAR=/star/nfs4/AFS/star/packages/__STARVER__; export STAR_HOST_SYS=sl73_x8664_gcc485; export STAR_LIB=${STAR}/.${STAR_HOST_SYS}/lib; export STAR_BIN=${STAR}/.${STAR_HOST_SYS}/bin; export PATH=${STAR_BIN}:${STAR}/mgr:$PATH; export LD_LIBRARY_PATH=${STAR_LIB}:$LD_LIBRARY_PATH; root4star -q -b analysis/__RUN_MACRO__\(\"$FILELIST\",\"$SCRATCH/__SCRATCH_SUBDIR__/__OUTPUT_FILE_STEM___$JOBID.root\",\"$JOBID\",__MAX_EVENTS__,\"__MAINCONF__\"\)'
+  </command>
+
+  <stdout URL="file:__LOG_DIR__/stdout.$JOBID.out" />
+  <stderr URL="file:__ERR_DIR__/stderr.$JOBID.err" />
+
+  <input
+      URL="__CATALOG_URL__"
+      nFiles="__N_FILES__"
+  />
+
+  <SandBox>
+    <Package>
+      <File>file:./.sl73_x8664_gcc485</File>
+      <File>file:./analysis/</File>
+      <File>file:./lib/</File>
+      <File>file:./config/</File>
+      <File>file:./include/</File>
+      <File>file:./StMaker/</File>
+      <File>file:./StRoot/</File>
+    </Package>
+  </SandBox>
+
+  <output fromScratch="__SCRATCH_SUBDIR__/__OUTPUT_FILE_STEM___$JOBID.root" toURL="file:__WORK_DIR__/rootfile/__SCRATCH_SUBDIR__/" />
+
+</job>

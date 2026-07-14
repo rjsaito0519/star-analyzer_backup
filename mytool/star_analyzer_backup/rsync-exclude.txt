@@ -1,0 +1,53 @@
+# Thick excludes for star-analyzer -> backup DEST (rsync --exclude-from)
+.git
+.git/**
+.discord_webhook
+**/.discord_webhook
+**/config.env
+.current_mainconf
+.cursor
+.cursor/**
+
+# Large / generated
+lib/
+lib/**
+rootfile/
+rootfile/**
+share/
+share/**
+log/
+log/**
+err/
+err/**
+backup/
+backup/**
+tmp_Nuclear_id/
+tmp_Nuclear_id/**
+
+# Binary / build patterns
+*.root
+*.so
+*.pcm
+*.o
+*.dylib
+*.pdf
+*.log
+*.out
+
+# SUMS job/run clutter
+job/run/*.csh
+job/run/*.list
+job/run/*.condor
+job/run/*.report
+job/run/*.dataset
+job/run/*.dataset.tmp
+job/run/*.session.xml
+job/run/watchmerge/**
+job/run/runmeta/*.tar.gz
+job/run/runmeta/*.patch
+
+# Editor temp
+*~
+*.swp
+*.swo
+\#*#

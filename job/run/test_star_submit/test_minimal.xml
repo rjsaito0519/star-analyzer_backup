@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Minimal test job for star-submit: no root4star, just write a text file to SCRATCH.
+  Output is copied to job/run/test_star_submit/result/
+  Use: cd job/run && ./test_star_submit/submit_test.sh
+-->
+<job name="test_minimal" simulateSubmission="false" maxFilesPerProcess="1" fileListSyntax="xrootd" copyInputLocally="true">
+
+  <command>
+    echo "Star-submit test OK at `date`" &gt; $SCRATCH/test_result_$JOBID.txt &amp;&amp; echo "Done"
+  </command>
+
+  <Generator>
+    <Location>__PROJECT_ROOT__/job/run/test_star_submit/</Location>
+  </Generator>
+
+  <stdout URL="file:__PROJECT_ROOT__/job/run/test_star_submit/log/stdout.$JOBID.out" />
+  <stderr URL="file:__PROJECT_ROOT__/job/run/test_star_submit/log/stderr.$JOBID.err" />
+
+  <input
+      URL="catalog:star.bnl.gov?trgsetupname=production_19GeV_2019,production=P24iy,filetype=daq_reco_picoDst,filename~st_physics,storage!=HPSS"
+      nFiles="1"
+  />
+
+  <SandBox>
+    <Package>
+      <File>file:__PROJECT_ROOT__/README.md</File>
+    </Package>
+  </SandBox>
+
+  <output fromScratch="test_result_$JOBID.txt" toURL="file:__PROJECT_ROOT__/job/run/test_star_submit/result/" />
+  <output fromScratch="test_result_$JOBID.txt" toURL="file:/gpfs01/star/pwg/oura/star_submit_test/" />
+
+</job>
