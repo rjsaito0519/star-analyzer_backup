@@ -1,5 +1,5 @@
-// checkHistAnaKplusXiFemto.C - QA + CF PDF for K+-Xi- femto (mirrors checkHistAnaKXiFemto).
-// Invoke via: ./script/singularity_checkHistAnaKplusXiFemto.sh <root_file> <mainconf_path>
+// checkHistAnaKminusXiFemto.C - QA + CF PDF for K--Xi- femto (mirrors checkHistAnaKXiFemto).
+// Invoke via: ./script/singularity_checkHistAnaKminusXiFemto.sh <root_file> <mainconf_path>
 
 #include <TROOT.h>
 #include <TSystem.h>
@@ -104,8 +104,8 @@ static void drawKstarCF(TH1* hSE, TH1* hME) {
   line->Draw("same");
 }
 
-void checkHistAnaKplusXiFemto(const Char_t* rootFile,
-                              const Char_t* anaNameArg = "auau19_anaKplusXiFemto",
+void checkHistAnaKminusXiFemto(const Char_t* rootFile,
+                              const Char_t* anaNameArg = "auau19_anaKminusXiFemto",
                               const Char_t* mainconfPath = 0) {
   gROOT->SetBatch(kTRUE);
   gStyle->SetOptStat(0);
@@ -122,7 +122,7 @@ void checkHistAnaKplusXiFemto(const Char_t* rootFile,
     mainConfigPath = mainconfPath;
     if (mainConfigPath(0) != '/') mainConfigPath = TString(pwd) + "/" + mainConfigPath;
   } else {
-    mainConfigPath = TString(pwd) + "/config/mainconf/main_auau19_anaKplusXiFemto.yaml";
+    mainConfigPath = TString(pwd) + "/config/mainconf/main_auau19_anaKminusXiFemto.yaml";
   }
 
   if (!ConfigManager::GetInstance().LoadConfig(mainConfigPath.Data())) {
@@ -151,7 +151,7 @@ void checkHistAnaKplusXiFemto(const Char_t* rootFile,
   if (gSystem->AccessPathName(figDir)) {
     gSystem->mkdir(figDir, kTRUE);
   }
-  TString pdfName = figDir + anaName + "_checkHistAnaKplusXiFemto.pdf";
+  TString pdfName = figDir + anaName + "_checkHistAnaKminusXiFemto.pdf";
   std::cout << "Output PDF: " << pdfName.Data() << std::endl;
   std::cout << "Xi mass window for lines: [" << xiMassMin << ", " << xiMassMax << "]" << std::endl;
 
@@ -159,10 +159,10 @@ void checkHistAnaKplusXiFemto(const Char_t* rootFile,
 
   std::vector<std::string> inputs;
   inputs.push_back((const char*)rootFile);
-  TString note = "Check histograms from run_anaKplusXiFemto.C (StKplusXiFemtoMaker).\n";
+  TString note = "Check histograms from run_anaKminusXiFemto.C (StKminusXiFemtoMaker).\n";
   note += Form("CF: C(k*) = (ME_norm/SE_norm)*(SE/ME), norm in k*=[0.6,1.0].\n");
   note += Form("Xi pairing mass window (red dashed): [%.3f, %.3f] GeV/c^2.\n", xiMassMin, xiMassMax);
-  PdfHeader::MakePdfHeaderPage(pdfName, "checkHistAnaKplusXiFemto.C", inputs, note.Data(), true, anaName.Data());
+  PdfHeader::MakePdfHeaderPage(pdfName, "checkHistAnaKminusXiFemto.C", inputs, note.Data(), true, anaName.Data());
 
   TCanvas* c1 = new TCanvas("c1", "canvas", 1200, 800);
   TH1* h1 = 0;
@@ -172,33 +172,33 @@ void checkHistAnaKplusXiFemto(const Char_t* rootFile,
   c1->Clear();
   c1->Divide(3, 2);
   c1->cd(1);
-  TH1* hSE = (TH1*)fin->Get("hKstarSE_kp_xim");
-  TH1* hME = (TH1*)fin->Get("hKstarME_kp_xim");
+  TH1* hSE = (TH1*)fin->Get("hKstarSE_km_xim");
+  TH1* hME = (TH1*)fin->Get("hKstarME_km_xim");
   if (hSE) {
     hSE->SetLineColor(kRed);
-    hSE->SetTitle("Same Event k* (K^{+}#Xi^{-});k* [GeV/c];Counts");
+    hSE->SetTitle("Same Event k* (K^{-}#Xi^{-});k* [GeV/c];Counts");
     hSE->Draw();
   }
   c1->cd(2);
   if (hME) {
     hME->SetLineColor(kBlue);
-    hME->SetTitle("Mixed Event k* (K^{+}#Xi^{-});k* [GeV/c];Counts");
+    hME->SetTitle("Mixed Event k* (K^{-}#Xi^{-});k* [GeV/c];Counts");
     hME->Draw();
   }
   c1->cd(3);
   if (hSE && hME) drawKstarCF(hSE, hME);
   c1->cd(4);
-  h2 = (TH2*)fin->Get("hKstarSEVsCent_kp_xim");
+  h2 = (TH2*)fin->Get("hKstarSEVsCent_km_xim");
   if (h2) h2->Draw("colz");
   c1->cd(5);
-  h2 = (TH2*)fin->Get("hKstarMEVsCent_kp_xim");
+  h2 = (TH2*)fin->Get("hKstarMEVsCent_km_xim");
   if (h2) h2->Draw("colz");
   c1->cd(6);
-  h2 = (TH2*)fin->Get("hKp_Mass2VsP");
+  h2 = (TH2*)fin->Get("hKm_Mass2VsP");
   if (h2) h2->Draw("colz");
   c1->Print(pdfName);
 
-  // Page 2: Xi mass (with cut lines) + K+/Xi QA
+  // Page 2: Xi mass (with cut lines) + K-/Xi QA
   c1->Clear();
   c1->Divide(3, 2);
   c1->cd(1);
@@ -217,13 +217,13 @@ void checkHistAnaKplusXiFemto(const Char_t* rootFile,
   h1 = (TH1*)fin->Get("hXi_Eta");
   if (h1) h1->Draw();
   c1->cd(4);
-  h1 = (TH1*)fin->Get("hKp_Pt");
+  h1 = (TH1*)fin->Get("hKm_Pt");
   if (h1) h1->Draw();
   c1->cd(5);
-  h1 = (TH1*)fin->Get("hKp_NSigma");
+  h1 = (TH1*)fin->Get("hKm_NSigma");
   if (h1) h1->Draw();
   c1->cd(6);
-  h1 = (TH1*)fin->Get("hNKp");
+  h1 = (TH1*)fin->Get("hNKm");
   if (h1) h1->Draw();
   c1->Print(pdfName);
 
@@ -245,8 +245,8 @@ void checkHistAnaKplusXiFemto(const Char_t* rootFile,
   c1->Print(pdfName);
 
   // Page 4: centrality-dependent CF (cent9 0..8)
-  TH2* h2SE_Cent = (TH2*)fin->Get("hKstarSEVsCent_kp_xim");
-  TH2* h2ME_Cent = (TH2*)fin->Get("hKstarMEVsCent_kp_xim");
+  TH2* h2SE_Cent = (TH2*)fin->Get("hKstarSEVsCent_km_xim");
+  TH2* h2ME_Cent = (TH2*)fin->Get("hKstarMEVsCent_km_xim");
   if (h2SE_Cent && h2ME_Cent) {
     c1->Clear();
     c1->Divide(3, 3);
