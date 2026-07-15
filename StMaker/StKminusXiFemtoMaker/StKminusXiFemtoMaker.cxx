@@ -24,6 +24,32 @@
 namespace {
 const Double_t kKaonMinusMass = 0.493677;
 const Double_t kXiMass = 1.32171;
+const char* kChannel = "km_xim";
+
+// Returns "" (signal), "_leftSB", "_rightSB", or 0 (skip).
+const char* XiMassHistSuffix(Double_t mass, const FemtoConfig& cfg) {
+  if (mass >= cfg.xiMassMin && mass <= cfg.xiMassMax) return "";
+  if (cfg.xiSidebandLeftMax > cfg.xiSidebandLeftMin && mass >= cfg.xiSidebandLeftMin &&
+      mass <= cfg.xiSidebandLeftMax)
+    return "_leftSB";
+  if (cfg.xiSidebandRightMax > cfg.xiSidebandRightMin && mass >= cfg.xiSidebandRightMin &&
+      mass <= cfg.xiSidebandRightMax)
+    return "_rightSB";
+  return 0;
+}
+
+void FillKstarPairHists(HistManager* hm, Bool_t sameEvent, const char* suffix, Double_t kstar, Int_t cent9,
+                        Double_t w) {
+  if (!hm || !suffix) return;
+  const char* seMe = sameEvent ? "SE" : "ME";
+  TString h1name = TString::Format("hKstar%s_%s%s", seMe, kChannel, suffix);
+  hm->Fill(h1name.Data(), kstar, w);
+  if (cent9 >= 0) {
+    TString h2name = TString::Format("hKstar%sVsCent_%s%s", seMe, kChannel, suffix);
+    TH2* h2 = (TH2*)hm->Get(h2name.Data());
+    if (h2) h2->Fill(kstar, (Double_t)cent9, w);
+  }
+}
 }
 
 StKminusXiFemtoMaker::StKminusXiFemtoMaker(const char* name, StPicoDstMaker* picoMaker, StXiMaker* xiMaker,
@@ -345,20 +371,14 @@ void StKminusXiFemtoMaker::FillSameEventPairs() {
     const KaonMinusCandidate& kp = mKaonMinusCandidates[ik];
     for (size_t ixi = 0; ixi < mXiCandidates.size(); ixi++) {
       const XiCandidate& xi = mXiCandidates[ixi];
-      if (xi.invMass < cfg.xiMassMin || xi.invMass > cfg.xiMassMax) continue;
+      const char* suf = XiMassHistSuffix(xi.invMass, cfg);
+      if (!suf) continue;
       if (ShareTracks(kp, xi)) continue;
 
       TLorentzVector p4k = KaonMinusP4(kp.mom);
       TLorentzVector p4xi = XiP4(xi.mom);
       Double_t kstar = ComputeKStar(p4k, p4xi);
-
-      if (m_histManager) {
-        m_histManager->Fill("hKstarSE_km_xim", kstar, w);
-        if (m_cent9 >= 0) {
-          TH2* h2 = (TH2*)m_histManager->Get("hKstarSEVsCent_km_xim");
-          if (h2) h2->Fill(kstar, (Double_t)m_cent9, w);
-        }
-      }
+      FillKstarPairHists(m_histManager, kTRUE, suf, kstar, m_cent9, w);
     }
   }
 }
@@ -383,20 +403,14 @@ void StKminusXiFemtoMaker::FillMixedEventPairs(Float_t vz, Int_t cent9) {
         const KaonMinusCandidate& kp = mKaonMinusCandidates[ik];
         for (size_t ixi = 0; ixi < poolXis.size(); ixi++) {
           const XiCandidate& xi = poolXis[ixi];
-          if (xi.invMass < cfg.xiMassMin || xi.invMass > cfg.xiMassMax) continue;
+          const char* suf = XiMassHistSuffix(xi.invMass, cfg);
+          if (!suf) continue;
           if (ShareTracks(kp, xi)) continue;
 
           TLorentzVector p4k = KaonMinusP4(kp.mom);
           TLorentzVector p4xi = XiP4(xi.mom);
           Double_t kstar = ComputeKStar(p4k, p4xi);
-
-          if (m_histManager) {
-            m_histManager->Fill("hKstarME_km_xim", kstar, w);
-            if (m_cent9 >= 0) {
-              TH2* h2 = (TH2*)m_histManager->Get("hKstarMEVsCent_km_xim");
-              if (h2) h2->Fill(kstar, (Double_t)m_cent9, w);
-            }
-          }
+          FillKstarPairHists(m_histManager, kFALSE, suf, kstar, m_cent9, w);
         }
       }
     }
@@ -407,7 +421,8 @@ void StKminusXiFemtoMaker::FillMixedEventPairs(Float_t vz, Int_t cent9) {
       const std::vector<KaonMinusCandidate>& poolKps = pool[ie].kaonsMinus;
       for (size_t ixi = 0; ixi < mXiCandidates.size(); ixi++) {
         const XiCandidate& xi = mXiCandidates[ixi];
-        if (xi.invMass < cfg.xiMassMin || xi.invMass > cfg.xiMassMax) continue;
+        const char* suf = XiMassHistSuffix(xi.invMass, cfg);
+        if (!suf) continue;
         for (size_t ik = 0; ik < poolKps.size(); ik++) {
           const KaonMinusCandidate& kp = poolKps[ik];
           if (ShareTracks(kp, xi)) continue;
@@ -415,14 +430,7 @@ void StKminusXiFemtoMaker::FillMixedEventPairs(Float_t vz, Int_t cent9) {
           TLorentzVector p4k = KaonMinusP4(kp.mom);
           TLorentzVector p4xi = XiP4(xi.mom);
           Double_t kstar = ComputeKStar(p4k, p4xi);
-
-          if (m_histManager) {
-            m_histManager->Fill("hKstarME_km_xim", kstar, w);
-            if (m_cent9 >= 0) {
-              TH2* h2 = (TH2*)m_histManager->Get("hKstarMEVsCent_km_xim");
-              if (h2) h2->Fill(kstar, (Double_t)m_cent9, w);
-            }
-          }
+          FillKstarPairHists(m_histManager, kFALSE, suf, kstar, m_cent9, w);
         }
       }
     }

@@ -90,6 +90,10 @@ void FemtoConfig::SetDefaults() {
   kaonPlusMaxMass2 = 0.35;
   xiMassMin = 1.312;
   xiMassMax = 1.332;
+  xiSidebandLeftMin = 1.295;
+  xiSidebandLeftMax = 1.310;
+  xiSidebandRightMin = 1.334;
+  xiSidebandRightMax = 1.349;
 
   he4MaxDca = 1.0;
   he4MinPMom = 0.0;
@@ -332,6 +336,18 @@ void FemtoConfig::ApplyYamlValues(const std::map<std::string, std::string>& valu
   }
   if (values.find("xiMassMax") != values.end()) {
     xiMassMax = YamlParser::ToDouble(values.at("xiMassMax"), xiMassMax);
+  }
+  if (values.find("xiSidebandLeftMin") != values.end()) {
+    xiSidebandLeftMin = YamlParser::ToDouble(values.at("xiSidebandLeftMin"), xiSidebandLeftMin);
+  }
+  if (values.find("xiSidebandLeftMax") != values.end()) {
+    xiSidebandLeftMax = YamlParser::ToDouble(values.at("xiSidebandLeftMax"), xiSidebandLeftMax);
+  }
+  if (values.find("xiSidebandRightMin") != values.end()) {
+    xiSidebandRightMin = YamlParser::ToDouble(values.at("xiSidebandRightMin"), xiSidebandRightMin);
+  }
+  if (values.find("xiSidebandRightMax") != values.end()) {
+    xiSidebandRightMax = YamlParser::ToDouble(values.at("xiSidebandRightMax"), xiSidebandRightMax);
   }
 
   if (values.find("he4MaxDca") != values.end()) he4MaxDca = YamlParser::ToDouble(values.at("he4MaxDca"), he4MaxDca);

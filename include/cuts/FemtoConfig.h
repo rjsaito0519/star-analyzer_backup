@@ -79,6 +79,11 @@ class FemtoConfig {
   Double_t kaonPlusMaxMass2;
   Double_t xiMassMin;
   Double_t xiMassMax;
+  // Xi sideband mass windows for SB CF (StKplus/KminusXiFemtoMaker). Empty/invalid if min >= max.
+  Double_t xiSidebandLeftMin;
+  Double_t xiSidebandLeftMax;
+  Double_t xiSidebandRightMin;
+  Double_t xiSidebandRightMax;
 
   // 4He bachelor cuts for femto pairing.
   Double_t he4MaxDca;
