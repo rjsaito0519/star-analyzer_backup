@@ -210,6 +210,12 @@ Bool_t ConfigManager::ParseMainConfig(const Char_t* filename) {
     }
   }
 
+  if (values.find("kXiFemto") != values.end()) {
+    if (!LoadConfigFile(basePath.c_str(), values["kXiFemto"].c_str(), "femto")) {
+      success = kFALSE;
+    }
+  }
+
   if (values.find("maker") != values.end()) {
     if (!LoadConfigFile(basePath.c_str(), values["maker"].c_str(), "maker")) {
       success = kFALSE;

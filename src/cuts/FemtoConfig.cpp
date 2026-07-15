@@ -88,6 +88,8 @@ void FemtoConfig::SetDefaults() {
   kaonPlusTofMomentumThreshold = 0.5;
   kaonPlusMinMass2 = 0.15;
   kaonPlusMaxMass2 = 0.35;
+  k0MassMin = 0.482;
+  k0MassMax = 0.513;
   xiMassMin = 1.312;
   xiMassMax = 1.332;
   xiSidebandLeftMin = 1.295;
@@ -330,6 +332,12 @@ void FemtoConfig::ApplyYamlValues(const std::map<std::string, std::string>& valu
   }
   if (values.find("kaonPlusMaxMass2") != values.end()) {
     kaonPlusMaxMass2 = YamlParser::ToDouble(values.at("kaonPlusMaxMass2"), kaonPlusMaxMass2);
+  }
+  if (values.find("k0MassMin") != values.end()) {
+    k0MassMin = YamlParser::ToDouble(values.at("k0MassMin"), k0MassMin);
+  }
+  if (values.find("k0MassMax") != values.end()) {
+    k0MassMax = YamlParser::ToDouble(values.at("k0MassMax"), k0MassMax);
   }
   if (values.find("xiMassMin") != values.end()) {
     xiMassMin = YamlParser::ToDouble(values.at("xiMassMin"), xiMassMin);

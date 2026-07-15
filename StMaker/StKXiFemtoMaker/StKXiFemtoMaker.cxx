@@ -10,6 +10,7 @@
 #include "cuts/EventCutConfig.h"
 #include "cuts/CentralityCutConfig.h"
 #include "cuts/MixingConfig.h"
+#include "cuts/FemtoConfig.h"
 
 #include "TFile.h"
 #include "TH1.h"
@@ -23,6 +24,32 @@
 namespace {
 const Double_t kK0shortMass = 0.497611;
 const Double_t kXiMass = 1.32171;
+const char* kChannel = "k0_xi";
+
+// Returns "" (signal), "_leftSB", "_rightSB", or 0 (skip). Xi mass only.
+const char* XiMassHistSuffix(Double_t mass, const FemtoConfig& cfg) {
+  if (mass >= cfg.xiMassMin && mass <= cfg.xiMassMax) return "";
+  if (cfg.xiSidebandLeftMax > cfg.xiSidebandLeftMin && mass >= cfg.xiSidebandLeftMin &&
+      mass <= cfg.xiSidebandLeftMax)
+    return "_leftSB";
+  if (cfg.xiSidebandRightMax > cfg.xiSidebandRightMin && mass >= cfg.xiSidebandRightMin &&
+      mass <= cfg.xiSidebandRightMax)
+    return "_rightSB";
+  return 0;
+}
+
+void FillKstarPairHists(HistManager* hm, Bool_t sameEvent, const char* suffix, Double_t kstar, Int_t cent9,
+                        Double_t w) {
+  if (!hm || !suffix) return;
+  const char* seMe = sameEvent ? "SE" : "ME";
+  TString h1name = TString::Format("hKstar%s_%s%s", seMe, kChannel, suffix);
+  hm->Fill(h1name.Data(), kstar, w);
+  if (cent9 >= 0) {
+    TString h2name = TString::Format("hKstar%sVsCent_%s%s", seMe, kChannel, suffix);
+    TH2* h2 = (TH2*)hm->Get(h2name.Data());
+    if (h2) h2->Fill(kstar, (Double_t)cent9, w);
+  }
+}
 }
 
 StKXiFemtoMaker::StKXiFemtoMaker(const char* name, StPicoDstMaker* picoMaker,
@@ -41,12 +68,7 @@ StKXiFemtoMaker::StKXiFemtoMaker(const char* name, StPicoDstMaker* picoMaker,
       m_cent16(-1),
       m_refMultCorr(-1.0),
       m_centWeight(1.0),
-      m_centralityPercent(-1.0) {
-  mK0MassMin = 0.482;
-  mK0MassMax = 0.513;
-  mXiMassMin = 1.312;
-  mXiMassMax = 1.332;
-}
+      m_centralityPercent(-1.0) {}
 
 StKXiFemtoMaker::~StKXiFemtoMaker() {
   if (m_centrality) {
@@ -293,29 +315,26 @@ Int_t StKXiFemtoMaker::GetMixingBin(Float_t vz, Int_t cent9) const {
 
 void StKXiFemtoMaker::FillSameEventPairs() {
   if (mK0Candidates.empty() || mXiCandidates.empty()) return;
-  const Double_t w = (m_centrality && m_centrality->IsEnabled() && ConfigManager::GetInstance().GetCentralityCuts().useWeight) ? m_centWeight : 1.0;
+  const FemtoConfig& cfg = ConfigManager::GetInstance().GetFemtoConfig();
+  const Double_t w =
+      (m_centrality && m_centrality->IsEnabled() && ConfigManager::GetInstance().GetCentralityCuts().useWeight)
+          ? m_centWeight
+          : 1.0;
 
   for (size_t ik0 = 0; ik0 < mK0Candidates.size(); ik0++) {
     const K0Candidate& k0 = mK0Candidates[ik0];
-    if (k0.invMass < mK0MassMin || k0.invMass > mK0MassMax) continue;
-    
+    if (k0.invMass < cfg.k0MassMin || k0.invMass > cfg.k0MassMax) continue;
+
     for (size_t ixi = 0; ixi < mXiCandidates.size(); ixi++) {
       const XiCandidate& xi = mXiCandidates[ixi];
-      if (xi.invMass < mXiMassMin || xi.invMass > mXiMassMax) continue;
-      
+      const char* suf = XiMassHistSuffix(xi.invMass, cfg);
+      if (!suf) continue;
       if (ShareTracks(k0, xi)) continue;
 
       TLorentzVector p4k0 = K0shortP4(k0.mom);
       TLorentzVector p4xi = XiP4(xi.mom);
       Double_t kstar = ComputeKStar(p4k0, p4xi);
-
-      if (m_histManager) {
-        m_histManager->Fill("hKstarSE_k0_xi", kstar, w);
-        if (m_cent9 >= 0) {
-          TH2* h2 = (TH2*)m_histManager->Get("hKstarSEVsCent_k0_xi");
-          if (h2) h2->Fill(kstar, (Double_t)m_cent9, w);
-        }
-      }
+      FillKstarPairHists(m_histManager, kTRUE, suf, kstar, m_cent9, w);
     }
   }
 }
@@ -326,60 +345,50 @@ void StKXiFemtoMaker::FillMixedEventPairs(Float_t vz, Int_t cent9) {
   std::map<Int_t, std::deque<FemtoMixingEvent> >::const_iterator poolIt = m_mixingPool.find(mixBin);
   if (poolIt == m_mixingPool.end() || poolIt->second.empty()) return;
 
-  const Double_t w = (m_centrality && m_centrality->IsEnabled() && ConfigManager::GetInstance().GetCentralityCuts().useWeight) ? m_centWeight : 1.0;
+  const FemtoConfig& cfg = ConfigManager::GetInstance().GetFemtoConfig();
+  const Double_t w =
+      (m_centrality && m_centrality->IsEnabled() && ConfigManager::GetInstance().GetCentralityCuts().useWeight)
+          ? m_centWeight
+          : 1.0;
   const std::deque<FemtoMixingEvent>& pool = poolIt->second;
 
-  // Mix current K0s with pool Xis
   if (!mK0Candidates.empty()) {
     for (size_t ie = 0; ie < pool.size(); ie++) {
       const std::vector<XiCandidate>& poolXis = pool[ie].xis;
       for (size_t ik0 = 0; ik0 < mK0Candidates.size(); ik0++) {
         const K0Candidate& k0 = mK0Candidates[ik0];
-        if (k0.invMass < mK0MassMin || k0.invMass > mK0MassMax) continue;
+        if (k0.invMass < cfg.k0MassMin || k0.invMass > cfg.k0MassMax) continue;
         for (size_t ixi = 0; ixi < poolXis.size(); ixi++) {
           const XiCandidate& xi = poolXis[ixi];
-          if (xi.invMass < mXiMassMin || xi.invMass > mXiMassMax) continue;
+          const char* suf = XiMassHistSuffix(xi.invMass, cfg);
+          if (!suf) continue;
           if (ShareTracks(k0, xi)) continue;
 
           TLorentzVector p4k0 = K0shortP4(k0.mom);
           TLorentzVector p4xi = XiP4(xi.mom);
           Double_t kstar = ComputeKStar(p4k0, p4xi);
-
-          if (m_histManager) {
-            m_histManager->Fill("hKstarME_k0_xi", kstar, w);
-            if (m_cent9 >= 0) {
-              TH2* h2 = (TH2*)m_histManager->Get("hKstarMEVsCent_k0_xi");
-              if (h2) h2->Fill(kstar, (Double_t)m_cent9, w);
-            }
-          }
+          FillKstarPairHists(m_histManager, kFALSE, suf, kstar, m_cent9, w);
         }
       }
     }
   }
 
-  // Mix current Xis with pool K0s
   if (!mXiCandidates.empty()) {
     for (size_t ie = 0; ie < pool.size(); ie++) {
       const std::vector<K0Candidate>& poolK0s = pool[ie].k0shorts;
       for (size_t ixi = 0; ixi < mXiCandidates.size(); ixi++) {
         const XiCandidate& xi = mXiCandidates[ixi];
-        if (xi.invMass < mXiMassMin || xi.invMass > mXiMassMax) continue;
+        const char* suf = XiMassHistSuffix(xi.invMass, cfg);
+        if (!suf) continue;
         for (size_t ik0 = 0; ik0 < poolK0s.size(); ik0++) {
           const K0Candidate& k0 = poolK0s[ik0];
-          if (k0.invMass < mK0MassMin || k0.invMass > mK0MassMax) continue;
+          if (k0.invMass < cfg.k0MassMin || k0.invMass > cfg.k0MassMax) continue;
           if (ShareTracks(k0, xi)) continue;
 
           TLorentzVector p4k0 = K0shortP4(k0.mom);
           TLorentzVector p4xi = XiP4(xi.mom);
           Double_t kstar = ComputeKStar(p4k0, p4xi);
-
-          if (m_histManager) {
-            m_histManager->Fill("hKstarME_k0_xi", kstar, w);
-            if (m_cent9 >= 0) {
-              TH2* h2 = (TH2*)m_histManager->Get("hKstarMEVsCent_k0_xi");
-              if (h2) h2->Fill(kstar, (Double_t)m_cent9, w);
-            }
-          }
+          FillKstarPairHists(m_histManager, kFALSE, suf, kstar, m_cent9, w);
         }
       }
     }

@@ -81,11 +81,6 @@ class StKXiFemtoMaker : public StMaker {
 
   std::map<Int_t, std::deque<FemtoMixingEvent> > m_mixingPool;
 
-  Double_t mK0MassMin;
-  Double_t mK0MassMax;
-  Double_t mXiMassMin;
-  Double_t mXiMassMax;
-
   Bool_t PassEventCuts(Float_t vz, Float_t vr, Int_t refMult);
   Double_t ComputeKStar(const TLorentzVector& pA, const TLorentzVector& pB) const;
   TLorentzVector K0shortP4(const TVector3& p) const;
