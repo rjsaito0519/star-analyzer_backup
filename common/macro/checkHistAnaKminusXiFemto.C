@@ -83,7 +83,7 @@ static void drawKstarCF(TH1* hSE, TH1* hME) {
 
   for (Int_t ib = 1; ib <= hSE->GetNbinsX(); ++ib) {
     Double_t kstarVal = hSE->GetBinCenter(ib);
-    if (kstarVal > 1.0) break;
+    if (kstarVal > 0.5) break;  // draw up to 500 MeV/c
 
     Double_t se = hSE->GetBinContent(ib);
     Double_t me = hME->GetBinContent(ib);
@@ -110,9 +110,9 @@ static void drawKstarCF(TH1* hSE, TH1* hME) {
   gCF->Draw("AP");
   gCF->GetHistogram()->SetMinimum(0.5);
   gCF->GetHistogram()->SetMaximum(1.8);
-  gCF->GetXaxis()->SetRangeUser(0.0, 1.0);
+  gCF->GetXaxis()->SetRangeUser(0.0, 0.5);
 
-  TLine* line = new TLine(0.0, 1.0, 1.0, 1.0);
+  TLine* line = new TLine(0.0, 1.0, 0.5, 1.0);
   line->SetLineColor(kRed);
   line->SetLineStyle(2);
   line->Draw("same");
