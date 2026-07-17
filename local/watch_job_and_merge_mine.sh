@@ -168,6 +168,7 @@ discord_webhook_url() {
 }
 
 # Upsert one Discord message per jobid (wait=true create, then PATCH). Soft-fail always.
+# Always use curl (not urllib): Discord Cloudflare blocks default Python-urllib UA with 403/1010.
 discord_upsert() {
   local content="$1"
   local attach_path="${2:-}"
@@ -190,8 +191,6 @@ discord_upsert() {
 import json
 import os
 import subprocess
-import urllib.error
-import urllib.request
 
 content = os.environ["CONTENT"]
 url = os.environ["URL"].rstrip("/")
@@ -200,6 +199,7 @@ attach = (os.environ.get("ATTACH") or "").strip()
 resp_path = os.environ["RESP_FILE"]
 code_path = os.environ["CODE_FILE"]
 msg_file = os.environ["DISCORD_MSG_FILE"]
+ua = "star-analyzer-mysubmit/1.0"
 
 def write_result(code, body):
     with open(code_path, "w") as handle:
@@ -207,80 +207,73 @@ def write_result(code, body):
     with open(resp_path, "w") as handle:
         handle.write(body)
 
+def run_curl(cmd):
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    out = (proc.stdout or "") + (proc.stderr or "")
+    lines = out.strip().splitlines()
+    code = lines[-1] if lines else "0"
+    body = "\n".join(lines[:-1]) if len(lines) > 1 else ""
+    return code, body
+
+def maybe_save_id(code, body, had_msg_id):
+    if not code.startswith("2") or had_msg_id:
+        return
+    try:
+        data = json.loads(body)
+        new_id = data.get("id")
+        if new_id:
+            with open(msg_file, "w") as handle:
+                handle.write(str(new_id) + "\n")
+    except Exception:
+        pass
+
 payload = {"content": content}
+payload_json = json.dumps(payload)
 
 try:
     if attach and os.path.isfile(attach):
-        # Prefer curl for multipart (edit or create).
         if msg_id:
-            edit_url = "%s/messages/%s" % (url, msg_id)
             cmd = [
-                "curl", "-sS", "-X", "PATCH", edit_url,
-                "-F", "payload_json=%s" % json.dumps(payload),
+                "curl", "-sS", "-A", ua, "-X", "PATCH",
+                "%s/messages/%s" % (url, msg_id),
+                "-F", "payload_json=%s" % payload_json,
                 "-F", "file=@%s" % attach,
                 "-w", "\n%{http_code}",
             ]
         else:
-            create_url = url + "?wait=true"
             cmd = [
-                "curl", "-sS", "-X", "POST", create_url,
-                "-F", "payload_json=%s" % json.dumps(payload),
+                "curl", "-sS", "-A", ua, "-X", "POST",
+                url + "?wait=true",
+                "-F", "payload_json=%s" % payload_json,
                 "-F", "file=@%s" % attach,
                 "-w", "\n%{http_code}",
             ]
-        proc = subprocess.run(cmd, capture_output=True, text=True)
-        out = (proc.stdout or "") + (proc.stderr or "")
-        lines = out.strip().splitlines()
-        code = lines[-1] if lines else "0"
-        body = "\n".join(lines[:-1]) if len(lines) > 1 else ""
+        code, body = run_curl(cmd)
         write_result(code, body)
-        if code.startswith("2") and not msg_id:
-            try:
-                data = json.loads(body)
-                new_id = data.get("id")
-                if new_id:
-                    with open(msg_file, "w") as handle:
-                        handle.write(str(new_id) + "\n")
-            except Exception:
-                pass
-        # If attach failed, fall back to text-only below.
+        maybe_save_id(code, body, bool(msg_id))
         if code.startswith("2"):
             raise SystemExit(0)
+        # Attach failed: fall through to text-only curl.
 
-    # Text-only JSON path (create or edit).
-    data = json.dumps(payload).encode("utf-8")
     if msg_id:
-        req = urllib.request.Request(
+        cmd = [
+            "curl", "-sS", "-A", ua, "-X", "PATCH",
             "%s/messages/%s" % (url, msg_id),
-            data=data,
-            headers={"Content-Type": "application/json"},
-            method="PATCH",
-        )
+            "-H", "Content-Type: application/json",
+            "-d", payload_json,
+            "-w", "\n%{http_code}",
+        ]
     else:
-        req = urllib.request.Request(
+        cmd = [
+            "curl", "-sS", "-A", ua, "-X", "POST",
             url + "?wait=true",
-            data=data,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-    try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            body = resp.read().decode("utf-8", errors="replace")
-            write_result(str(resp.status), body)
-            if not msg_id:
-                try:
-                    parsed = json.loads(body)
-                    new_id = parsed.get("id")
-                    if new_id:
-                        with open(msg_file, "w") as handle:
-                            handle.write(str(new_id) + "\n")
-                except Exception:
-                    pass
-    except urllib.error.HTTPError as exc:
-        body = exc.read().decode("utf-8", errors="replace")
-        write_result(str(exc.code), body)
-    except Exception as exc:
-        write_result("0", str(exc))
+            "-H", "Content-Type: application/json",
+            "-d", payload_json,
+            "-w", "\n%{http_code}",
+        ]
+    code, body = run_curl(cmd)
+    write_result(code, body)
+    maybe_save_id(code, body, bool(msg_id))
 except SystemExit:
     raise
 except Exception as exc:
