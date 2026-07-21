@@ -75,7 +75,8 @@ LIBRARY_TAG="$(echo "$LIBRARY_TAG" | xargs)"
 source "$SCRIPT_DIR/setup.sh" "$MAINCONF_REAL"
 export LD_LIBRARY_PATH="$PROJECT_ROOT_REAL/lib:${LD_LIBRARY_PATH:-}"
 
-rm -f "$PROJECT_ROOT_REAL"/analysis/anaKXiFemto_C.* 2>/dev/null
+rm -rf "$PROJECT_ROOT_REAL/.build/aclic" 2>/dev/null
+mkdir -p "$PROJECT_ROOT_REAL/.build/aclic"
 
 collect_bind_mounts() {
   local -a binds=()

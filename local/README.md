@@ -75,3 +75,25 @@ bash -n local/watch_job_and_merge_mine.sh
 ## Retires
 
 Former WIP copies were moved to `backup/*.wip.bak` (do not treat as source of truth).
+
+## ACLiC build dir (KXi trial)
+
+ROOT ACLiC artifacts (`*_C.so`, `*_C.d`) normally land next to the source `.C`.
+For **anaKXiFemto** only, runners use `gSystem->SetBuildDir("$PWD/.build/aclic")`
+so `analysis/` stays source-only.
+
+Layout:
+
+```
+.build/aclic/          # git-excluded; ACLiC output for KXi run + checkHist
+  gpfs/mnt/.../analysis/anaKXiFemto_C.*        # ROOT 5 mirrors abs path
+  gpfs/mnt/.../common/macro/checkHistAnaKXiFemto_C.*
+```
+
+Local cleanup before a fresh compile:
+
+```bash
+rm -rf .build/aclic
+```
+
+Details and agent rules: [`AGENTS.md`](AGENTS.md) (ACLiC build dir section).

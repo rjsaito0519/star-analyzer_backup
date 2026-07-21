@@ -55,7 +55,8 @@ LIBRARY_TAG="$(echo "$LIBRARY_TAG" | xargs)"
 source "$SCRIPT_DIR/setup.sh" "$MAINCONF_REAL"
 export LD_LIBRARY_PATH="$PROJECT_ROOT_REAL/lib:$LD_LIBRARY_PATH"
 
-rm -f "$PROJECT_ROOT_REAL"/common/macro/checkHistAnaKXiFemto_C.* 2>/dev/null
+rm -rf "$PROJECT_ROOT_REAL/.build/aclic" 2>/dev/null
+mkdir -p "$PROJECT_ROOT_REAL/.build/aclic"
 
 CONTAINER_CMD=$(cat <<EOF
 export STAR=/star/nfs4/AFS/star/packages/$LIBRARY_TAG

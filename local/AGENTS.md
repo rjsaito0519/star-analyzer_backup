@@ -53,3 +53,22 @@ repo-`scratch/` job artifacts for **this user’s personal workflow**.
 ./local/watch_job_and_merge_mine.sh \
   --runmeta job/run/runmeta/runmeta_<anaName>_<jobid>.json
 ```
+
+## ACLiC build dir (trial: anaKXiFemto)
+
+KXi runner macros redirect ROOT ACLiC output (`.so`, `.d`, etc.) away from
+`analysis/` and `common/macro/`:
+
+- **Build dir:** `$PROJECT_ROOT/.build/aclic/` via `gSystem->SetBuildDir()` in
+  `analysis/run_anaKXiFemto.C` and `analysis/run_checkHistAnaKXiFemto.C`
+  (before `.L ...C+`). On ROOT 5.34 (STAR), ACLiC mirrors the absolute source
+  path under that dir (e.g. `.build/aclic/gpfs/mnt/.../analysis/anaKXiFemto_C.*`),
+  not a flat `anaKXiFemto_C.so` at the top level.
+- **Stale cleanup:** `script/singularity_run_anaKXiFemto.sh` and
+  `script/singularity_checkHistAnaKXiFemto.sh` run `rm -rf .build/aclic` before
+  each local Singularity run.
+- **Ignore:** `.build/` is in `.git/info/exclude` (not shared `.gitignore`).
+- **Scope:** KXi only for now. Do **not** upstream to `docs/ai/*` or other
+  analyses until validated on batch as well.
+- **Batch note:** official joblist still clears `analysis/*_C.*`; worker
+  `runtime_dir` is recreated per subjob so `.build/aclic` there is ephemeral.

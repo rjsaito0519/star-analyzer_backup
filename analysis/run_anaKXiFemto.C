@@ -50,6 +50,10 @@ void run_anaKXiFemto(const Char_t* inputFile,
   gInterpreter->AddIncludePath("$STAR/StRoot");
   gSystem->AddLinkedLibs(TString::Format("-L%s/lib -lStarAnaConfig -lStRefMultCorr -lStCommon -lStK0shortMaker -lStXiMaker -lStKXiFemtoMaker -Wl,-rpath,%s/lib", pwd, pwd));
 
+  TString acliCBuildDir = TString::Format("%s/.build/aclic", pwd);
+  gSystem->mkdir(acliCBuildDir.Data(), kTRUE);
+  gSystem->SetBuildDir(acliCBuildDir.Data());
+
   gROOT->ProcessLine(TString::Format(".L %s/analysis/anaKXiFemto.C+", pwd));
   anaKXiFemto(inputFile, outputFile, jobid, nEventsMax, configPath);
 }

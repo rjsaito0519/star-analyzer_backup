@@ -17,6 +17,10 @@ void run_checkHistAnaKXiFemto(const Char_t* rootFile,
   gInterpreter->AddIncludePath(TString::Format("%s/include", pwd));
   gSystem->AddLinkedLibs(TString::Format("-L%s/lib -lStarAnaConfig -Wl,-rpath,%s/lib", pwd, pwd));
 
+  TString acliCBuildDir = TString::Format("%s/.build/aclic", pwd);
+  gSystem->mkdir(acliCBuildDir.Data(), kTRUE);
+  gSystem->SetBuildDir(acliCBuildDir.Data());
+
   gROOT->ProcessLine(TString::Format(".L %s/common/macro/checkHistAnaKXiFemto.C+", pwd));
   checkHistAnaKXiFemto(rootFile, anaName, mainconfPath);
 }
