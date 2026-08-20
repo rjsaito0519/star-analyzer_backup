@@ -35,6 +35,9 @@ public:
   /** Fill 3D histogram. No-op and log once if name not found. */
   void Fill(const char* name, Double_t x, Double_t y, Double_t z);
 
+  /** Fill a 2D histogram with an explicit weight. */
+  void Fill2DWeighted(const char* name, Double_t x, Double_t y, Double_t weight);
+
   /** Write all owned histograms to current TDirectory. */
   void Write();
 

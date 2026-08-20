@@ -96,7 +96,8 @@ def write_mainconf(config_base, ana_name, analysis_rel, force=False):
     with open(template_path, 'r') as f:
         content = f.read()
     content = content.replace(MAINCONF_TEMPLATE_ANANAME, ana_name)
-    is_lambda = 'lambda' in ana_name.lower()
+    is_lambda = 'lambda' in ana_name.lower() and 'femtolambda' not in ana_name.lower()
+    is_femtolambda = 'femtolambda' in ana_name.lower()
     is_nuclearid = 'nuclearid' in ana_name.lower() or 'nucleusid' in ana_name.lower()
     is_phi = 'phi' in ana_name.lower()
 
@@ -106,6 +107,11 @@ def write_mainconf(config_base, ana_name, analysis_rel, force=False):
         active_keys.add('v0')
         active_keys.add('mixing')
         active_keys.add('lambda')
+    if is_femtolambda:
+        active_keys.add('v0')
+        active_keys.add('mixing')
+        active_keys.add('nuclearid')
+        active_keys.add('femtoLambdaNuclear')
     if is_phi:
         active_keys.add('mixing')
         active_keys.add('phi')
@@ -167,6 +173,21 @@ def write_mainconf(config_base, ana_name, analysis_rel, force=False):
                 content,
                 flags=re.MULTILINE
             )
+        elif is_femtolambda:
+            # Add nuclearid cut mapping
+            content = re.sub(
+                r'^nuclearid\s*:\s*.*$',
+                'nuclearid:     cuts/nuclearid/nuclearid_{ana_name}.yaml'.format(ana_name=ana_name),
+                content,
+                flags=re.MULTILINE
+            )
+            # Map hist key to femtoLambdaNuclear for Maker config
+            content = re.sub(
+                r'^hist\s*:\s*(hist/hist_{ana_name}\.yaml)'.format(ana_name=re.escape(ana_name)),
+                'femtoLambdaNuclear: \\1',
+                content,
+                flags=re.MULTILINE
+            )
         elif is_lambda:
             # Keep lambda key
             pass
@@ -189,8 +210,8 @@ def write_mainconf(config_base, ana_name, analysis_rel, force=False):
         # Check if line starts with an inactive key followed by a colon
         parts = stripped.split(':', 1)
         key = parts[0].strip()
-        if key in ['event', 'track', 'pid', 'v0', 'mixing', 'centrality', 'nuclearid', 'lambda', 'phi', 'lambdaHist', 'nuclearidHist', 'hist', 'analysis']:
-            if key in active_keys or (is_lambda and is_nuclearid and key in ['lambdaHist', 'nuclearidHist']):
+        if key in ['event', 'track', 'pid', 'v0', 'mixing', 'centrality', 'nuclearid', 'lambda', 'phi', 'femtoLambdaNuclear', 'lambdaHist', 'nuclearidHist', 'hist', 'analysis']:
+            if key in active_keys or (is_lambda and is_nuclearid and key in ['lambdaHist', 'nuclearidHist']) or ('lambdanucle' in ana_name.lower() and key in ['lambdaHist', 'nuclearidHist']):
                 filtered_lines.append(line)
         else:
             filtered_lines.append(line)
@@ -282,7 +303,8 @@ def main():
         shutil.copy2(src, dst)
         print("Created: {}".format(os.path.relpath(dst, config_base)))
 
-    is_lambda = 'lambda' in ana_name.lower()
+    is_lambda = 'lambda' in ana_name.lower() and 'femtolambda' not in ana_name.lower()
+    is_femtolambda = 'femtolambda' in ana_name.lower()
     is_nuclearid = 'nuclearid' in ana_name.lower() or 'nucleusid' in ana_name.lower()
     is_phi = 'phi' in ana_name.lower()
 
@@ -295,6 +317,10 @@ def main():
     if is_lambda:
         active_cuts.append(('cuts/v0reco/v0.yaml', 'cuts/v0reco', 'v0'))
         active_cuts.append(('cuts/mixing/mixing.yaml', 'cuts/mixing', 'mixing'))
+    if is_femtolambda:
+        active_cuts.append(('cuts/v0reco/v0.yaml', 'cuts/v0reco', 'v0'))
+        active_cuts.append(('cuts/mixing/mixing.yaml', 'cuts/mixing', 'mixing'))
+        active_cuts.append(('cuts/nuclearid/nuclearid.yaml', 'cuts/nuclearid', 'nuclearid'))
     if is_phi:
         active_cuts.append(('cuts/mixing/mixing.yaml', 'cuts/mixing', 'mixing'))
     if is_nuclearid:
@@ -392,7 +418,9 @@ def main():
                 print("Created: {}".format(os.path.relpath(hist_dst, config_base)))
     else:
         hist_template_rel = None
-        if is_lambda:
+        if is_femtolambda:
+            hist_template_rel = 'hist_anaFemtoLambda.yaml'
+        elif is_lambda:
             hist_template_rel = 'hist_anaLambda.yaml'
         elif is_phi:
             hist_template_rel = 'hist_anaPhi.yaml'

@@ -15,11 +15,11 @@ public:
   Int_t nEventPlaneBins;
   Int_t bufferSize;
 
-  // mixingMode: randomSample (default) | bufferAll (loop all buffer events, Zhangwei-like)
+  // mixingMode: randomSample (uniform subset of eligible pairs) | bufferAll (all eligible pairs)
   std::string mixingMode;
-  // 0 = unlimited pairs per event (randomSample); default 500 for backward compatibility
+  // 0 = unlimited pairs per event (randomSample); ignored by bufferAll
   Int_t maxMixedPairsPerEvent;
-  // When true with bufferAll, mix current A with buffer B and buffer A with current B
+  // Mix current A with buffer B and, when true, buffer A with current B
   Bool_t mixBothDirections;
 
   // Set default values

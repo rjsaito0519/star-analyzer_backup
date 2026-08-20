@@ -22,6 +22,8 @@ struct TrackExtra {
   Float_t nSigmaTriton;
   Float_t nSigmaHe3;
   Float_t mass2;
+  Float_t deltaOneOverBeta;
+  Bool_t tofMatch;
   Float_t dca;
   Short_t nHitsFit;
   Int_t trackIndex;
@@ -34,6 +36,8 @@ struct TrackExtra {
         nSigmaTriton(0.0f),
         nSigmaHe3(0.0f),
         mass2(-999.0f),
+        deltaOneOverBeta(999.0f),
+        tofMatch(kFALSE),
         dca(0.0f),
         nHitsFit(0),
         trackIndex(-1) {}
@@ -43,14 +47,18 @@ struct ResonanceExtra {
   Float_t invMass;
   Float_t dcaDaughters;
   Float_t betaGamma;
+  Int_t dau1EventIndex;
   Int_t dau1Index;
+  Int_t dau2EventIndex;
   Int_t dau2Index;
 
   ResonanceExtra()
       : invMass(0.0f),
         dcaDaughters(0.0f),
         betaGamma(-1.0f),
+        dau1EventIndex(-1),
         dau1Index(-1),
+        dau2EventIndex(-1),
         dau2Index(-1) {}
 };
 
@@ -101,6 +109,29 @@ struct FemtoCandidate {
     y = (Float_t)v.Rapidity();
   }
 };
+
+inline Bool_t FemtoTrackRefsMatch(Int_t eventIndexA, Int_t trackIndexA, Int_t eventIndexB, Int_t trackIndexB) {
+  return eventIndexA >= 0 && trackIndexA >= 0 && eventIndexA == eventIndexB && trackIndexA == trackIndexB;
+}
+
+inline Bool_t FemtoResonanceContainsTrack(const ResonanceExtra& reso, Int_t eventIndex, Int_t trackIndex) {
+  return FemtoTrackRefsMatch(reso.dau1EventIndex, reso.dau1Index, eventIndex, trackIndex) ||
+         FemtoTrackRefsMatch(reso.dau2EventIndex, reso.dau2Index, eventIndex, trackIndex);
+}
+
+inline Bool_t FemtoCandidatesShareTrack(const FemtoCandidate& a, const FemtoCandidate& b) {
+  if (a.source == kFemtoCandResonance && b.source == kFemtoCandResonance) {
+    return FemtoResonanceContainsTrack(a.reso, b.reso.dau1EventIndex, b.reso.dau1Index) ||
+           FemtoResonanceContainsTrack(a.reso, b.reso.dau2EventIndex, b.reso.dau2Index);
+  }
+  if (a.source == kFemtoCandResonance) {
+    return FemtoResonanceContainsTrack(a.reso, b.eventIndex, b.trk.trackIndex);
+  }
+  if (b.source == kFemtoCandResonance) {
+    return FemtoResonanceContainsTrack(b.reso, a.eventIndex, a.trk.trackIndex);
+  }
+  return FemtoTrackRefsMatch(a.eventIndex, a.trk.trackIndex, b.eventIndex, b.trk.trackIndex);
+}
 
 typedef std::map<std::string, std::vector<FemtoCandidate> > FemtoCandidateStore;
 

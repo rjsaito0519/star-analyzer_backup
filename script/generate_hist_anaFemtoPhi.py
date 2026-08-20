@@ -31,6 +31,8 @@ PHI_FEMTO_KEYS = {
     "hPhiRot_Rapidity",
     "hPhiRot_NCand",
     "hPhiRot_DeltaPhiApplied",
+    "hPhiMix_MKK",
+    "hPhiMix_NCand",
 }
 SKIP_DUPLICATE = set(PHI_FEMTO_KEYS)
 
@@ -156,6 +158,85 @@ SIGNAL_FEMTO_CHANNELS = [
     "phi_he4_signal",
 ]
 
+# Method 3 direct purity: full M_KK range (no signal-window cut at fill).
+WIDE_FEMTO_CHANNELS = [ch.replace("_signal", "_wide") for ch in SIGNAL_FEMTO_CHANNELS]
+
+# --- h-K correlations extension (two-body h-K CFs + Kubo-rule triplet background) ---
+HK_TWOBODY_BACHELORS = ["proton", "deuteron", "triton", "he3", "he4"]
+HK_KAON_SPECIES = ["phikaon_plus", "phikaon_minus"]
+HK_COARSE_BACHELORS = {"triton", "he3", "he4"}
+KUBO_TRIPLET_BASES = ["phi_proton", "phi_deuteron"]
+
+
+def hkaon_twobody_blocks(kaon: str, bach: str) -> dict[str, str]:
+    ch = f"{kaon}_{bach}"
+    axis = "*KstarCoarse" if bach in HK_COARSE_BACHELORS else "*Kstar"
+    klab = "K^{+}" if kaon.endswith("plus") else "K^{-}"
+    out: dict[str, str] = {}
+    out[f"hKstarSE_{ch}"] = (
+        f"  hKstarSE_{ch}:\n    axis: {axis}\n"
+        f'    title: "Same-event k^{{*}} h-{klab} ({ch});k^{{*}} [GeV/c];Counts"\n'
+    )
+    out[f"hKstarME_{ch}"] = (
+        f"  hKstarME_{ch}:\n    axis: {axis}\n"
+        f'    title: "Mixed-event k^{{*}} h-{klab} ({ch});k^{{*}} [GeV/c];Counts"\n'
+    )
+    out[f"hCF_{ch}"] = (
+        f"  hCF_{ch}:\n    axis: {axis}\n"
+        f'    title: "CF C(k^{{*}}) h-{klab} ({ch});k^{{*}} [GeV/c];C(k^{{*}})"\n'
+    )
+    out[f"hKstarSEVsCent_{ch}"] = (
+        f"  hKstarSEVsCent_{ch}:\n    xAxis: {axis}\n    yAxis: *Cent9\n"
+        f'    title: "SE k^{{*}} vs cent h-{klab} ({ch});k^{{*}} [GeV/c];cent9"\n'
+    )
+    out[f"hKstarMEVsCent_{ch}"] = (
+        f"  hKstarMEVsCent_{ch}:\n    xAxis: {axis}\n    yAxis: *Cent9\n"
+        f'    title: "ME k^{{*}} vs cent h-{klab} ({ch});k^{{*}} [GeV/c];cent9"\n'
+    )
+    return out
+
+
+def kubo_triplet_blocks(base: str) -> dict[str, str]:
+    out: dict[str, str] = {}
+    out[f"hKstarTripSEKp_{base}"] = (
+        f"  hKstarTripSEKp_{base}:\n    axis: *Kstar\n"
+        f'    title: "Kubo triplet N(h_{{1}}K^{{+}}_{{1}}K^{{-}}_{{2}}) k^{{*}}(h,KK) ({base});k^{{*}} [GeV/c];Counts"\n'
+    )
+    out[f"hKstarTripSEKm_{base}"] = (
+        f"  hKstarTripSEKm_{base}:\n    axis: *Kstar\n"
+        f'    title: "Kubo triplet N(h_{{1}}K^{{-}}_{{1}}K^{{+}}_{{2}}) k^{{*}}(h,KK) ({base});k^{{*}} [GeV/c];Counts"\n'
+    )
+    out[f"hKstarTripMix_{base}"] = (
+        f"  hKstarTripMix_{base}:\n    axis: *Kstar\n"
+        f'    title: "Kubo triplet reference N(h_{{1}}K^{{+}}_{{2}}K^{{-}}_{{3}}) k^{{*}}(h,KK) ({base});k^{{*}} [GeV/c];Counts"\n'
+    )
+    out[f"hMKKtriplet_{base}"] = (
+        f"  hMKKtriplet_{base}:\n    axis: *MKK\n"
+        f'    title: "Kubo triplet KK invariant mass ({base});M_{{KK}} [GeV/c^{{2}}];Counts"\n'
+    )
+    # Full-mass TH3 (no early signal-window cut); gated 1D above kept for compatibility.
+    for tag, lab in (
+        ("SEKp", "pK^{+} (SE K^{+}, ME K^{-})"),
+        ("SEKm", "pK^{-} (SE K^{-}, ME K^{+})"),
+        ("Mix", "fully-mixed D"),
+        ("KK", "KK (ME h, SE K^{+}K^{-})"),
+    ):
+        name = f"hKuboMKK_vs_Kstar{tag}_{base}"
+        out[name] = (
+            f"  {name}:\n    xAxis: *MKK\n    yAxis: *Kstar\n    zAxis: *Cent9\n    type: TH3F\n"
+            f'    title: "Kubo {lab} M_{{KK}} vs k^{{*}} vs cent ({base});'
+            f'M_{{KK}} [GeV/c^{{2}}];k^{{*}} [GeV/c];cent9"\n'
+        )
+    out[f"hKuboNRejectShared_{base}"] = (
+        f"  hKuboNRejectShared_{base}:\n    axis: *NKaon\n"
+        f'    title: "Kubo rejected shared-track pairs ({base});N_{{reject}};Counts"\n'
+    )
+    return out
+
+
+ROT_WIDE_CHANNELS = ["phi_rot_proton_wide", "phi_rot_deuteron_wide"]
+MIX_WIDE_CHANNELS = ["phi_mix_proton_wide", "phi_mix_deuteron_wide"]
+
 
 def mkk_vs_kstar_block(channel: str, is_se: bool) -> str:
     kind = "SE" if is_se else "ME"
@@ -201,6 +282,132 @@ def phi_pair_mom_angle_premass_block(channel: str, tof_strict: bool) -> tuple[st
     return name, block
 
 
+PHI_NEAR_TRACK_AXES = """
+  DedxNearY: &DedxNearY
+    nBins: 200
+    min: 0.0
+    max: 1.0e-5
+  Mass2ChargeY: &Mass2ChargeY
+    nBins: 400
+    min: -30.0
+    max: 30.0
+"""
+
+
+def phi_near_track_pid_blocks() -> dict[str, str]:
+    """PID QA for quality tracks near signal-window phi (PRF k*)."""
+    return {
+        "hDedxVsP_PhiSignalNear_k03": (
+            "  hDedxVsP_PhiSignalNear_k03:\n"
+            "    xAxis: *Momentum\n"
+            "    yAxis: *DedxNearY\n"
+            '    title: "dE/dx vs p (signal #phi, k^{*}<0.3);p [GeV/c];dE/dx [GeV/cm]"\n'
+        ),
+        "hDedxVsP_PhiSignalNear_k1": (
+            "  hDedxVsP_PhiSignalNear_k1:\n"
+            "    xAxis: *Momentum\n"
+            "    yAxis: *DedxNearY\n"
+            '    title: "dE/dx vs p (signal #phi, k^{*}<1);p [GeV/c];dE/dx [GeV/cm]"\n'
+        ),
+        "hMass2ChargeVsP_PhiSignalNear_k03": (
+            "  hMass2ChargeVsP_PhiSignalNear_k03:\n"
+            "    xAxis: *Momentum\n"
+            "    yAxis: *Mass2ChargeY\n"
+            '    title: "m^{2}#times q vs p (signal #phi, k^{*}<0.3);p [GeV/c];m^{2}#times q [(GeV/c^{2})^{2}]"\n'
+        ),
+        "hMass2ChargeVsP_PhiSignalNear_k1": (
+            "  hMass2ChargeVsP_PhiSignalNear_k1:\n"
+            "    xAxis: *Momentum\n"
+            "    yAxis: *Mass2ChargeY\n"
+            '    title: "m^{2}#times q vs p (signal #phi, k^{*}<1);p [GeV/c];m^{2}#times q [(GeV/c^{2})^{2}]"\n'
+        ),
+    }
+
+
+def phi_dau_pid_blocks() -> dict[str, str]:
+    """Loose vs production phi-daughter PID QA (K+/K-, low/high p, TOF yes/no)."""
+    blocks: dict[str, str] = {}
+    for ch, label in (("Kp", "K^{+}"), ("Km", "K^{-}")):
+        for stage, title in (("Loose", "loose TPC"), ("Prod", "production PID"), ("Reject", "PID reject")):
+            blocks[f"hPhiDauPid_N{stage}_{ch}"] = (
+                f"  hPhiDauPid_N{stage}_{ch}:\n"
+                "    axis: *NKaon\n"
+                f'    title: "N_{{{label}}} {title} per event;N;Counts"\n'
+            )
+            blocks[f"hPhiDauPid_TofMatchVsP_{stage}_{ch}"] = (
+                f"  hPhiDauPid_TofMatchVsP_{stage}_{ch}:\n"
+                "    xAxis: *Momentum\n"
+                "    yAxis: *Charge\n"
+                f'    title: "{label} TOF match vs p ({title});p [GeV/c];TOF match"\n'
+            )
+            blocks[f"hPhiDauPid_Category_{stage}_{ch}"] = (
+                f"  hPhiDauPid_Category_{stage}_{ch}:\n"
+                "    axis: *PhiDauPidCat\n"
+                f'    title: "{label} PID category ({title});0=low noTOF, 1=low TOF, 2=high noTOF, 3=high TOF;Counts"\n'
+            )
+        for stage in ("Loose", "Prod"):
+            blocks[f"hPhiDauPid_Mass2VsP_{stage}_{ch}"] = (
+                f"  hPhiDauPid_Mass2VsP_{stage}_{ch}:\n"
+                "    xAxis: *Momentum\n"
+                "    yAxis: *Mass2Y\n"
+                f'    title: "{label} TOF m^{{2}} vs p ({stage});p [GeV/c];m^{{2}}"\n'
+            )
+        for source in ("real", "rot", "mix"):
+            blocks[f"hPhiDauPidUsed_TofMatchVsP_{source}_{ch}"] = (
+                f"  hPhiDauPidUsed_TofMatchVsP_{source}_{ch}:\n"
+                "    xAxis: *Momentum\n"
+                "    yAxis: *Charge\n"
+                f'    title: "{label} used in {source} #phi: TOF vs p;p [GeV/c];TOF match"\n'
+            )
+            blocks[f"hPhiDauPidUsed_Mass2VsP_{source}_{ch}"] = (
+                f"  hPhiDauPidUsed_Mass2VsP_{source}_{ch}:\n"
+                "    xAxis: *Momentum\n"
+                "    yAxis: *Mass2Y\n"
+                f'    title: "{label} used in {source} #phi: m^{{2}} vs p;p [GeV/c];m^{{2}}"\n'
+            )
+    return blocks
+
+
+def phi_mix_sampling_blocks() -> dict[str, str]:
+    """phi_mix lazy-permutation cap QA. NPairPopulation is exact pair combinations
+    after production PID (both directions combined). NEligibleExact is filled only
+    on a full scan (uncapped or population <= cap). Do not treat EligibleLowerBound
+    as exact Nraw.
+    """
+    return {
+        "hPhiMix_NStoredWide": """  hPhiMix_NStoredWide:
+    axis: *PhiMixStored
+    title: "phi_mix stored candidates per event;N_{stored};Counts"
+""",
+        "hPhiMix_PairPopulationLog10": """  hPhiMix_PairPopulationLog10:
+    axis: *PhiMixLog10Pairs
+    title: "phi_mix pair population log_{10}(NPairPopulation);log_{10} N_{pop};Counts"
+""",
+        "hPhiMix_AttemptedLog10": """  hPhiMix_AttemptedLog10:
+    axis: *PhiMixLog10Pairs
+    title: "phi_mix attempted pair evaluations log_{10}(NAttempted);log_{10} N_{att};Counts"
+""",
+        "hPhiMix_CapHit": """  hPhiMix_CapHit:
+    axis: *CapFlag
+    title: "phi_mix cap hit (N_{eligible}>cap);0=no 1=yes;Counts"
+""",
+        "hPhiMix_KeepFraction": """  hPhiMix_KeepFraction:
+    axis: *Fraction01
+    title: "phi_mix keep fraction NStored/NPairPopulation;fraction;Counts"
+""",
+        "hPhiMix_FwdRevRatio": """  hPhiMix_FwdRevRatio:
+    axis: *Fraction01
+    title: "phi_mix stored forward fraction NStoredFwd/(Fwd+Rev);fraction;Counts"
+""",
+        "hPhiMixSamplerQA": """  hPhiMixSamplerQA:
+    type: TH2D
+    xAxis: *PhiMixSamplerStatus
+    yAxis: *PhiMixDummy
+    title: "phi_mix sampler counters (weighted);status bin;dummy"
+""",
+    }
+
+
 def main() -> None:
     he4_text = (HIST_DIR / "hist_anaFemtoPhi4He.yaml").read_text()
     proton_text = (HIST_DIR / "hist_anaFemtoPhiProton.yaml").read_text()
@@ -228,6 +435,64 @@ def main() -> None:
             merged_axes,
             count=1,
         )
+    if "  BetaGamma: &BetaGamma\n" not in merged_axes:
+        # Fallback when BetaY anchor is absent from merged axes.
+        merged_axes = merged_axes.rstrip() + "\n  BetaGamma: &BetaGamma\n    nBins: 200\n    min: 0.0\n    max: 10.0\n\n"
+
+    # Coarse k* anchor for statistics-limited h-K species (t / 3He / 4He two-body CFs).
+    if "  KstarCoarse: &KstarCoarse\n" not in merged_axes:
+        merged_axes = merged_axes.rstrip() + "\n  KstarCoarse: &KstarCoarse\n    nBins: 150\n    min: 0.0\n    max: 3.0\n\n"
+
+    if "  MixSamplerStatus: &MixSamplerStatus\n" not in merged_axes:
+        merged_axes = merged_axes.rstrip() + (
+            "\n  MixSamplerStatus: &MixSamplerStatus\n"
+            "    nBins: 15\n"
+            "    min: -0.5\n"
+            "    max: 14.5\n"
+            "  MixChannel: &MixChannel\n"
+            "    nBins: 64\n"
+            "    min: -0.5\n"
+            "    max: 63.5\n\n"
+        )
+
+    if "  DedxNearY: &DedxNearY\n" not in merged_axes:
+        merged_axes = merged_axes.rstrip() + "\n" + PHI_NEAR_TRACK_AXES.lstrip("\n")
+    if "  PhiDauPidCat: &PhiDauPidCat\n" not in merged_axes:
+        merged_axes = merged_axes.rstrip() + (
+            "\n  PhiDauPidCat: &PhiDauPidCat\n"
+            "    nBins: 4\n"
+            "    min: -0.5\n"
+            "    max: 3.5\n\n"
+        )
+    if "  PhiMixStored: &PhiMixStored\n" not in merged_axes:
+        merged_axes = merged_axes.rstrip() + (
+            "\n  PhiMixStored: &PhiMixStored\n"
+            "    nBins: 251\n"
+            "    min: -0.5\n"
+            "    max: 2500.5\n"
+            "  PhiMixLog10Pairs: &PhiMixLog10Pairs\n"
+            "    nBins: 120\n"
+            "    min: 0.0\n"
+            "    max: 12.0\n"
+            "  CapFlag: &CapFlag\n"
+            "    nBins: 2\n"
+            "    min: -0.5\n"
+            "    max: 1.5\n"
+            "  Fraction01: &Fraction01\n"
+            "    nBins: 100\n"
+            "    min: 0.0\n"
+            "    max: 1.0\n"
+            "  PhiMixSamplerStatus: &PhiMixSamplerStatus\n"
+            "    nBins: 22\n"
+            "    min: -0.5\n"
+            "    max: 21.5\n"
+            "  PhiMixDummy: &PhiMixDummy\n"
+            "    nBins: 1\n"
+            "    min: -0.5\n"
+            "    max: 0.5\n\n"
+        )
+    if not merged_axes.endswith("\n"):
+        merged_axes += "\n"
 
     common: dict[str, str] = {}
     for name, block in he4_blocks.items():
@@ -238,6 +503,16 @@ def main() -> None:
         if name.startswith("hNHe4_"):
             continue
         common[name] = block
+
+    common.update(phi_near_track_pid_blocks())
+    common.update(phi_dau_pid_blocks())
+    common.update(phi_mix_sampling_blocks())
+    common["hMixSamplerQA"] = """  hMixSamplerQA:
+    type: TH2D
+    xAxis: *MixSamplerStatus
+    yAxis: *MixChannel
+    title: "Eligible-pair mixing QA;status counter;maker channel_N index"
+"""
 
     # Unified bachelor nσ vs p (plan §10.4)
     nsigma_extra = {
@@ -352,6 +627,16 @@ def main() -> None:
     yAxis: *BetaGamma
     title: "#phi M_{KK} vs #beta#gamma (both K daughters TOF matched);M_{KK} [GeV/c^{2}];#beta#gamma"
 """
+    if "hPhiMix_MKK" not in phi_femto:
+        phi_femto["hPhiMix_MKK"] = """  hPhiMix_MKK:
+    axis: *MKK
+    title: "Fully-mixed KK M_{KK};M_{KK} [GeV/c^{2}];Counts"
+"""
+    if "hPhiMix_NCand" not in phi_femto:
+        phi_femto["hPhiMix_NCand"] = """  hPhiMix_NCand:
+    axis: *NKaon
+    title: "Fully-mixed KK candidates per event;N_{mix};Counts"
+"""
 
     channels = [
         "phi_proton",
@@ -359,10 +644,13 @@ def main() -> None:
         "phi_proton_leftSB",
         "phi_proton_rightSB",
         "phi_rot_proton",
+        "phi_mix_proton",
         "phi_deuteron",
         "phi_deuteron_signal",
         "phi_deuteron_leftSB",
         "phi_deuteron_rightSB",
+        "phi_rot_deuteron",
+        "phi_mix_deuteron",
         "phi_triton",
         "phi_triton_signal",
         "phi_triton_leftSB",
@@ -384,10 +672,12 @@ def main() -> None:
             suffix = hk.split("_phi_he4", 1)[-1] if "_phi_he4" in hk else ""
             base = hk.replace("phi_he4", "CHANNEL").replace("phi_rot_he4", "CHANNEL_ROT")
             if "CHANNEL_ROT" in base:
-                if ch == "phi_rot_proton":
-                    new_name = base.replace("CHANNEL_ROT", "phi_rot_proton")
+                if ch in ("phi_rot_proton", "phi_rot_deuteron", "phi_mix_proton", "phi_mix_deuteron"):
+                    new_name = base.replace("CHANNEL_ROT", ch)
                     if hk in he4_blocks:
-                        channel_blocks[new_name] = rename_hist_block(channel_block_from_template(he4_blocks[hk], "phi_rot_proton"), new_name)
+                        channel_blocks[new_name] = rename_hist_block(
+                            channel_block_from_template(he4_blocks[hk], ch), new_name
+                        )
                 continue
             if "CHANNEL" not in base:
                 continue
@@ -410,7 +700,7 @@ def main() -> None:
             channel_blocks[new_name] = rename_hist_block(channel_block_from_template(he4_blocks[hk], ch), new_name)
 
     mkk_kstar_blocks: dict[str, str] = {}
-    for ch in SIGNAL_FEMTO_CHANNELS:
+    for ch in SIGNAL_FEMTO_CHANNELS + WIDE_FEMTO_CHANNELS + ROT_WIDE_CHANNELS + MIX_WIDE_CHANNELS:
         for is_se in (True, False):
             block = mkk_vs_kstar_block(ch, is_se)
             m = re.search(r"^  (h[A-Za-z0-9_]+):", block, re.MULTILINE)
@@ -424,6 +714,14 @@ def main() -> None:
                 pair_angle_blocks[name] = block
             name, block = phi_pair_mom_angle_premass_block(ch, tof_strict)
             pair_angle_blocks[name] = block
+
+    hkaon_blocks: dict[str, str] = {}
+    for kaon in HK_KAON_SPECIES:
+        for bach in HK_TWOBODY_BACHELORS:
+            hkaon_blocks.update(hkaon_twobody_blocks(kaon, bach))
+    kubo_blocks: dict[str, str] = {}
+    for base in KUBO_TRIPLET_BASES:
+        kubo_blocks.update(kubo_triplet_blocks(base))
 
     out_header = "# StFemtoMaker histogram definitions (auau3p85fxt_anaFemtoPhi unified)\n"
     out_header += "# 1D: axis: *Preset or nBins/min/max; title required\n"
@@ -446,7 +744,7 @@ def main() -> None:
             nm = kind + ch
             if nm in channel_blocks:
                 ordered_names.append(nm)
-    for ch in SIGNAL_FEMTO_CHANNELS:
+    for ch in SIGNAL_FEMTO_CHANNELS + WIDE_FEMTO_CHANNELS + ROT_WIDE_CHANNELS + MIX_WIDE_CHANNELS:
         for kind in ("hPhiMKK_vs_KstarSE_", "hPhiMKK_vs_KstarME_"):
             nm = kind + ch
             if nm in mkk_kstar_blocks:
@@ -459,6 +757,27 @@ def main() -> None:
             name, _ = phi_pair_mom_angle_premass_block(ch, tof_strict)
             if name in pair_angle_blocks:
                 ordered_names.append(name)
+    for kaon in HK_KAON_SPECIES:
+        for bach in HK_TWOBODY_BACHELORS:
+            ch = f"{kaon}_{bach}"
+            for kind in ("hKstarSE_", "hKstarME_", "hCF_", "hKstarSEVsCent_", "hKstarMEVsCent_"):
+                nm = kind + ch
+                if nm in hkaon_blocks:
+                    ordered_names.append(nm)
+    for base in KUBO_TRIPLET_BASES:
+        for nm in (
+            f"hKstarTripSEKp_{base}",
+            f"hKstarTripSEKm_{base}",
+            f"hKstarTripMix_{base}",
+            f"hMKKtriplet_{base}",
+            f"hKuboMKK_vs_KstarSEKp_{base}",
+            f"hKuboMKK_vs_KstarSEKm_{base}",
+            f"hKuboMKK_vs_KstarMix_{base}",
+            f"hKuboMKK_vs_KstarKK_{base}",
+            f"hKuboNRejectShared_{base}",
+        ):
+            if nm in kubo_blocks:
+                ordered_names.append(nm)
 
     merged: dict[str, str] = {}
     merged.update(common)
@@ -468,6 +787,8 @@ def main() -> None:
     merged.update(channel_blocks)
     merged.update(mkk_kstar_blocks)
     merged.update(pair_angle_blocks)
+    merged.update(hkaon_blocks)
+    merged.update(kubo_blocks)
 
     lines = [out_header.rstrip(), "", "histograms:"]
     for name in ordered_names:

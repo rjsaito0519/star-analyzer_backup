@@ -1,6 +1,7 @@
 #!/bin/bash
 # Build libStarAnaConfig.so and StMaker libraries inside batch-like singularity.
 # Usage: ./script/singularity_make.sh MAINCONF [--no-clean] [make-args...]
+# Default make-args include -jN (N = nproc) unless you already pass -j.
 
 set -euo pipefail
 
@@ -18,7 +19,7 @@ if [[ -z "$MAINCONF" ]]; then
   echo "Usage: $0 MAINCONF [--no-clean] [make-args...]" >&2
   echo "  MAINCONF    main config (required, e.g. config/mainconf/main_auau3p85fxt_anaPhi.yaml)" >&2
   echo "  --no-clean  skip make clean before make" >&2
-  echo "  make-args   optional extra arguments passed to make (default target: all)" >&2
+  echo "  make-args   optional extra arguments passed to make (default: all -jN, N=nproc)" >&2
   exit 1
 fi
 
@@ -36,6 +37,19 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+njobs="$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 20)"
+has_jobs=0
+if ((${#MAKE_ARGS[@]} > 0)); then
+  for arg in "${MAKE_ARGS[@]}"; do
+    case "$arg" in
+      -j|-j*) has_jobs=1 ;;
+    esac
+  done
+fi
+if [[ "$has_jobs" -eq 0 ]]; then
+  MAKE_ARGS+=("-j${njobs}")
+fi
 
 if [[ -z "$PYTHON" ]]; then
   echo "ERROR: python3 or python is required." >&2

@@ -20,7 +20,9 @@ Headers `include/FemtoCandidate.h` and `include/cuts/FemtoConfig.h` point to thi
 3. Extend builder dispatch in `StFemtoMaker` for new `particleKey` values (generic builders, not analysis-specific classes).
 4. Add histogram names using channel suffix: `hKstarSE_<channel>`, `hKstarME_<channel>`, optional empty `hCF_<channel>` shell in hist YAML.
    - Topic 3 (`anaFemtoPhi` unified): `hPhiMKK_vs_KstarSE/ME_<channel>_signal` (TH3: M_KK × k* × cent9); generate via `script/generate_hist_anaFemtoPhi.py`.
+   - kstarMassFitCF (`anaFemtoPhi` unified): also `hPhiMKK_vs_KstarSE/ME_<base>_wide` (full M_KK, no mass-window cut); \(S=F-\alpha B\) then \(C=Y_{SE}/Y_{ME}\); YAML `kstarMassFitCf*`; PDF `*_kstarMassFitCf[_jobid].pdf`; sidecar `*_CFkmf[_jobid].root`. Default template ROT. Distinct from Topic 3 and CF-Sub.
    - Phi-bachelor momentum angle QA (`anaFemtoPhi`): `hPhiPairMomAngle_<channel>_signal` (+ `_tofStrict`), `hPhiPairMomAngle_vs_MKK_<channel>_signal` (+ `_tofStrict`, `_preMass`, `_preMass_tofStrict`); CF unchanged; see README Topic "Phi-bachelor pair momentum angle QA".
+   - Phi-near-track PID QA (`anaFemtoPhi`): `hDedxVsP_PhiSignalNear_k1|k03`, `hMass2ChargeVsP_PhiSignalNear_k1|k03` (quality tracks near signal φ; YAML `phiNearTrack*`); checkHist 2×2 page before CF.
 5. CF for QA: computed in checkHist from merged SE/ME (not in Maker output).
    - Per-analysis macros: `checkHistAnaFemtoPhiProton.C`, `checkHistAnaFemtoPhi4He.C`, `checkHistAnaFemtoPhiDeuteron.C` (QA + separate CF PDF).
    - `cfRebinFactor`, `cfCent9Min`/`cfCent9Max` (legacy Page 20).
@@ -29,7 +31,9 @@ Headers `include/FemtoCandidate.h` and `include/cuts/FemtoConfig.h` point to thi
    - Sideband subtract (count-level): `sidebandSubtractAlpha`, `sidebandAlphaMode`, `negativeBinPolicy`; sub CF `CF_sig_sub_SBL|SBR|SBLR`.
    - Legacy per-species analyses output two PDFs: QA + `*_CF_{jobid}.pdf`.
    - **Topic 3 (unified `checkHistAnaFemtoPhi.C`)**: k*-binned `lambda_sig` from MKK fit; `C_bkg` from ME mass (`cfBkgMode: me_mass`); `C_genuine` formula in README Topic 3 section; purity YAML keys in maker femto block.
-6. ME statistics: `mixingMode` (`randomSample`|`bufferAll`), `maxMixedPairsPerEvent` (per-event cap, randomSample only), `mixBothDirections`, `bufferSize` in mixing YAML (`MixingConfig`). Re-batch after mixing changes.
+   - **method 5 CF-subtraction (unified)**: `CF_CFsub = [CF_sig-(1-P)CF_SB]/P` with sideband CF (`sumLR` SBLR); YAML `cfSubtractionMode` / `cfSubPurityMode` / `cfSubSidebandCombine` / `cfSubWriteSidecarRoot` / `cfSubLowStatsRebinExtra`; sidecar `*_CFsub_<jobid>.root`; does not replace count-level `CF_sig_sub_*` or Topic 3 `C_genuine`.
+   - **kstarMassFitCF (unified)**: per-k* full M_KK, \(S=F-\alpha B\), \(C=Y_{SE}/Y_{ME}\); not the same as PDF Λ Method 5 (sliding window) or CF-Sub.
+6. ME statistics: `mixingMode` (`randomSample`|`bufferAll`), `maxMixedPairsPerEvent` (per-event cap, randomSample only), `mixBothDirections`, `bufferSize` in mixing YAML (`MixingConfig`). In `bufferAll`, current `partA` × buffered `partB` and buffered `partA` × current `partB` are guarded independently; do not require both species in the current event, especially for rare t/³He/⁴He bachelors. Re-batch after mixing changes.
 7. Update `config/hist/hist_anaFemto*.yaml` and checkHist macro pages if QA changes.
 8. Document new keys in `StMaker/StFemtoMaker/README.md`.
 

@@ -54,6 +54,13 @@ Instead of subtracting raw counts, this method computes the Correlation Function
 \end{equation}
 Because the CF is a ratio ($True/Mixed$), it naturally cancels out raw kinematic phase-space differences. This method relies on the much safer assumption that the \textit{correlation behavior} (e.g., Coulomb/strong interactions) of the sideband background is similar to that of the background under the peak. Furthermore, fixing the SN ratio ($P=0.839$) prevents bin-by-bin statistical fluctuations in the background integral from destabilizing the correction.
 
+\textbf{3. Direct Purity Fitting (Method 3)}:
+This new method completely avoids the use of Sidebands. Instead, the 2D invariant mass vs $k^*$ distribution is projected onto the mass axis for \textit{each} individual $k^*$ bin. Each mass peak is then fitted with a \texttt{gaus + pol2} function to directly extract the purity $P(k^*)$ bin-by-bin. The correlation function is computed simply as the ratio of true signal counts to mixed signal counts:
+\begin{equation}
+    CF(k^*) = \frac{True_{tot}(k^*) \times P_{true}(k^*)}{Mix_{tot}(k^*) \times P_{mix}(k^*)} = \frac{N_{sig}^{true}(k^*)}{N_{sig}^{mix}(k^*)}
+\end{equation}
+While theoretically the most direct approach, it requires sufficient statistics in every $k^*$ bin for the fits to converge stably. If the statistics are too low, the bin-by-bin extraction of $P(k^*)$ can introduce unphysical fluctuations or artificial structures into the final correlation function.
+
 \subsection{Error Propagation and Methodological Assumptions}
 In both methods, ROOT correctly tracks the statistical errors by summing the squares of the weights (\texttt{Sumw2()}). 
 However, the way errors propagate and the underlying assumptions differ significantly:
@@ -143,8 +150,75 @@ To clearly understand what is being calculated, the intermediate steps from the 
 \end{figure}
 
 \clearpage
+\section{Step-by-Step Visualization of the Direct Purity Fitting (Method 3)}
+In Method 3 (\texttt{draw\_LambdaNuclearId\_relamom\_sum\_CFsub\_method3.C}), we do not use sidebands. Instead, we extract $P(k^*)$ bin-by-bin.
+
+\begin{figure}[h]
+    \centering
+    \begin{minipage}{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth, page=1]{../rootfile/auau13p5_anaLambdaNuclearId/pdf/kstar_sum_CFsub_method3_4He.pdf}
+        \caption{Extracted True and Mixed Signal Counts ($N_{sig}(k^*)$) for each $k^*$ bin.}
+    \end{minipage}\hfill
+    \begin{minipage}{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth, page=2]{../rootfile/auau13p5_anaLambdaNuclearId/pdf/kstar_sum_CFsub_method3_4He.pdf}
+        \caption{Bin-by-bin Purity ($P(k^*)$) extracted from the fits for True and Mixed events.}
+    \end{minipage}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.55\textwidth, page=3]{../rootfile/auau13p5_anaLambdaNuclearId/pdf/kstar_sum_CFsub_method3_4He.pdf}
+    \caption{Final Method 3 CF. Statistical fluctuations in the bin-by-bin purity extraction directly translate to structures in this CF.}
+\end{figure}
+
+\clearpage
+\section{Sliding Window Purity Extraction (Method 5)}
+To mitigate the severe statistical fluctuations of Method 3 while still capturing the physical $k^*$-dependence of the purity, a Sliding Window approach (Method 5) was developed.
+
+Instead of fitting the invariant mass distribution strictly bin-by-bin, Method 5 merges a few adjacent fine bins into a "window" centered around the target bin. The purity $P(k^*)$ and its fit error $\delta P(k^*)$ are extracted from this window and assigned only to the central bin. The window is then slid forward by one fine bin. 
+
+This provides a continuous, locally smoothed purity curve that doesn't enforce a rigid mathematical formula (like a global \texttt{pol1} fit), preserving genuine non-linear physical behavior near $k^* \approx 0$ while stabilizing the statistical errors.
+
+\subsection{Comparison: Method 3 vs. Method 5 (Centrality Dependent)}
+The smoothing effect is most dramatic in the centrality-dependent analysis, where statistics per bin are lowest. Below is the comparison of the $0-5\%$ centrality bin (page 11) for $^4$He (both using \texttt{Rebin(10)}).
+
+\begin{figure}[h]
+    \centering
+    \begin{minipage}{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth, page=11]{../rootfile/auau13p5_anaLambdaNuclearId/pdf/auau13p5_anaLambdaNuclearId_all_LambdaImprove_WideSide_CFsub_method3.pdf}
+        \caption{Method 3: Purity extracted strictly bin-by-bin. Notice the unphysical scattering in the purity and resulting CF.}
+    \end{minipage}\hfill
+    \begin{minipage}{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth, page=11]{../rootfile/auau13p5_anaLambdaNuclearId/pdf/auau13p5_anaLambdaNuclearId_all_LambdaImprove_WideSide_CFsub_method5.pdf}
+        \caption{Method 5: Purity extracted via Sliding Window. The purity curve is locally smoothed, resulting in a much more stable CF.}
+    \end{minipage}
+\end{figure}
+
+\subsection{Comparison: Method 3 vs. Method 5 (Group Sum)}
+Even in the summed centrality analysis (e.g., 0-20\% group), where statistics are richer, Method 5 visibly reduces artificial bumps in the final CF. Both plots below use the original \texttt{Rebin(10)}.
+
+\begin{figure}[h]
+    \centering
+    \begin{minipage}{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth, page=3]{../rootfile/auau13p5_anaLambdaNuclearId/pdf/kstar_sum_CFsub_method3_4He.pdf}
+        \caption{Method 3 (Summed): Minor statistical jumps in Purity still translate to artificial "bumps" in the final CF.}
+    \end{minipage}\hfill
+    \begin{minipage}{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth, page=3]{../rootfile/auau13p5_anaLambdaNuclearId/pdf/kstar_sum_CFsub_method5_4He.pdf}
+        \caption{Method 5 (Summed): The Sliding Window smooths out the minor jumps, yielding a cleaner physical correlation function.}
+    \end{minipage}
+\end{figure}
+
+\clearpage
 \section{Lednicky-Lyuboshits Fitting Results}
-The final corrected correlation functions (from the Group Calculation) are fitted using the Lednicky-Lyuboshits analytical model. We compare the fit results between the two background subtraction methods. The newly created macro \texttt{Fit\_LambdaNuclearId\_relamom\_sum\_CFsub.C} handles the CF-Subtraction fit.
+The final correlation functions (from the Group Calculation) are fitted using the Lednicky-Lyuboshits analytical model. 
+First, we compare the fit results between the two background subtraction methods (SB-Sub vs CF-Sub).
 
 \begin{figure}[h]
     \centering
@@ -160,7 +234,27 @@ The final corrected correlation functions (from the Group Calculation) are fitte
     \end{minipage}
 \end{figure}
 
-\textbf{Why do the fit results differ?}\\
-The source radii ($R$) and fit quality ($\chi^2$/ndf) differ between the two methods because they treat the background phase space differently. The direct raw subtraction (SB-Sub) often suffers from residual kinematic mismatch between the signal region and the sidebands, leading to artificial bumps or dips in the CF that skew the fit. The Purity-Corrected CF avoids these direct histogram subtractions by operating on the ratio ($True/Mix$), resulting in a correlation function that is less distorted by background kinematics. Consequently, the CF-Subtraction method (right) is generally more stable and theoretically robust for femtoscopic measurements.
+\textbf{Why do the fit results differ (SB-Sub vs CF-Sub)?}\\
+The source radii ($R$) and fit quality ($\chi^2$/ndf) differ between the two methods because they treat the background phase space differently. The direct raw subtraction (SB-Sub) often suffers from residual kinematic mismatch between the signal region and the sidebands, leading to artificial bumps or dips in the CF that skew the fit. The Purity-Corrected CF avoids these direct histogram subtractions by operating on the ratio ($True/Mix$), resulting in a correlation function that is less distorted by background kinematics.
+
+\subsection{Fit Results: Method 3 vs Method 5}
+Next, we perform the same Lednicky-Lyuboshits fits on the correlation functions derived without sidebands, comparing strictly bin-by-bin purity extraction (Method 3) to the Sliding Window approach (Method 5).
+
+\begin{figure}[h]
+    \centering
+    \begin{minipage}{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth, page=1]{../rootfile/auau13p5_anaLambdaNuclearId/pdf/Fit_LL_method3_4He.pdf}
+        \caption{LL Fit on Method 3 CF. Artificial bumps caused by bin-by-bin purity fluctuations pull the fit.}
+    \end{minipage}\hfill
+    \begin{minipage}{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth, page=1]{../rootfile/auau13p5_anaLambdaNuclearId/pdf/Fit_LL_method5_4He.pdf}
+        \caption{LL Fit on Method 5 CF (Sliding Window). The smoothed purity results in a much cleaner CF and better fit convergence.}
+    \end{minipage}
+\end{figure}
+
+\textbf{Effect of Sliding Window on Fit Stability}\\
+As seen in Method 3, minor statistical variations in the bin-by-bin extraction of $P(k^*)$ create small structures (dips/bumps) in the low-$k^*$ region, which artificially inflate the $\chi^2$ and alter the extracted source radius $R$. By employing the Sliding Window technique (Method 5), the local purity is naturally smoothed without enforcing a rigid global function. This provides a cleaner physical correlation function that leads to a more stable and reliable extraction of the femtoscopic parameters.
 
 \end{document}

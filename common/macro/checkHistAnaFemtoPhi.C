@@ -13,6 +13,9 @@
 #include <TH3.h>
 #include <TGraphErrors.h>
 #include <TF1.h>
+#include <TFitResult.h>
+#include <TFitResultPtr.h>
+#include <TMatrixDSym.h>
 #include <TLine.h>
 #include <TMath.h>
 #include <TObject.h>
@@ -21,6 +24,8 @@
 #include <TLatex.h>
 #include <TLegend.h>
 #include <TEllipse.h>
+#include <TNamed.h>
+#include <TParameter.h>
 #include <iostream>
 #include <vector>
 #include <limits.h>
@@ -39,12 +44,14 @@
 
 static Bool_t gConfigLoaded = kFALSE;
 
+static TString sanitizeGraphName(const std::string& key);
+
 static const Double_t kKstarHistXMin = 0.0;
 static const Double_t kKstarHistXMax = 3.0;
 static const Double_t kCfKstarXMin = 0.0;
 static const Double_t kCfKstarXMax = 0.65;
-static const Double_t kCfYMin = -0.5;
-static const Double_t kCfYMax = 2.5;
+static const Double_t kCfYMin = 0.5;
+static const Double_t kCfYMax = 2.0;
 
 
 struct BachelorQaSpec {
@@ -74,6 +81,37 @@ static const BachelorQaSpec kBachelorQaSpecs[] = {
 static const Int_t kNBachelorQaSpecs = sizeof(kBachelorQaSpecs) / sizeof(kBachelorQaSpecs[0]);
 
 static const char* kChannelBases[] = {"phi_proton", "phi_deuteron", "phi_triton", "phi_he3", "phi_he4", nullptr};
+
+// h-K correlations extension (two-body h-K CFs + Kubo-rule triplet background).
+static const char* kHKaonSpecies[] = {"phikaon_plus", "phikaon_minus", nullptr};
+static const char* kHKaonBachelors[] = {"proton", "deuteron", "triton", "he3", "he4", nullptr};
+static const char* kHKaonBachLabels[] = {"p", "d", "t", "^{3}He", "^{4}He", nullptr};
+static const char* kKuboBases[] = {"phi_proton", "phi_deuteron", nullptr};
+
+static Bool_t isHKaonTwoBodyEnabled() {
+  if (!gConfigLoaded) return kFALSE;
+  return ConfigManager::GetInstance().GetFemtoConfig().enableHKaonTwoBody;
+}
+
+static Bool_t isKuboTripletEnabled() {
+  if (!gConfigLoaded) return kFALSE;
+  return ConfigManager::GetInstance().GetFemtoConfig().enableKuboTriplet;
+}
+
+static Bool_t isKuboGenuineEnabled() {
+  if (!gConfigLoaded) return kFALSE;
+  return ConfigManager::GetInstance().GetFemtoConfig().enableKuboGenuine;
+}
+
+static Bool_t isKstarMassFitCfEnabled() {
+  if (!gConfigLoaded) return kTRUE;
+  return ConfigManager::GetInstance().GetFemtoConfig().kstarMassFitCfEnabled;
+}
+
+static Bool_t isLegacyCfPagesEnabled() {
+  if (!gConfigLoaded) return kFALSE;
+  return ConfigManager::GetInstance().GetFemtoConfig().legacyCfPagesEnabled;
+}
 
 static void setBachelorMass2AxisRange(TH1* h, Double_t ymax = 16.0) {
   if (!h) return;
@@ -1168,8 +1206,10 @@ static void printCfSliceConsoleSummary(const std::map<std::string, TGraphErrors*
       Int_t nLam = getCachedCfPointCount(cfCache, cfSliceCacheKey(sl.id, std::string("lambda_sig_") + channelBase).c_str());
       Int_t nBkgMe = getCachedCfPointCount(cfCache, cfSliceCacheKey(sl.id, std::string("CF_bkg_me_") + channelBase).c_str());
       Int_t nGen = getCachedCfPointCount(cfCache, cfSliceCacheKey(sl.id, std::string("CF_genuine_") + channelBase).c_str());
+      Int_t nCfSub =
+          getCachedCfPointCount(cfCache, cfSliceCacheKey(sl.id, std::string("CF_CFsub_SBLR_") + channelBase).c_str());
       std::cout << "      lambda_sig nPoints=" << nLam << ", CF_bkg_me nPoints=" << nBkgMe
-                << ", CF_genuine nPoints=" << nGen << "\n";
+                << ", CF_genuine nPoints=" << nGen << ", CF_CFsub_SBLR nPoints=" << nCfSub << "\n";
     }
   }
   std::cout << "=============================================================\n\n";
@@ -1531,6 +1571,519 @@ static TGraphErrors* computeGenuineCfGraph(TFile* fin, const FemtoConfig::CfCent
   return gGen;
 }
 
+static Bool_t isMethod5Enabled() {
+  if (!gConfigLoaded) return kFALSE;
+  if (!ConfigManager::GetInstance().GetFemtoConfig().legacyCfPagesEnabled) return kFALSE;
+  return ConfigManager::GetInstance().GetFemtoConfig().cfSubtractionMode == "method5";
+}
+
+static Bool_t isCfSubWriteSidecar() {
+  if (!gConfigLoaded) return kTRUE;
+  return ConfigManager::GetInstance().GetFemtoConfig().cfSubWriteSidecarRoot;
+}
+
+static Int_t getCfSubEffectiveRebin(const std::string& channelBase) {
+  Int_t base = getCfRebinFactor();
+  Int_t extra = 1;
+  if (gConfigLoaded) {
+    extra = ConfigManager::GetInstance().GetFemtoConfig().cfSubLowStatsRebinExtra;
+  }
+  if (extra > 1 &&
+      (channelBase == "phi_triton" || channelBase == "phi_he3" || channelBase == "phi_he4")) {
+    return base * extra;
+  }
+  return base;
+}
+
+// Project TH3 (M_KK x k* x cent9) to inclusive M_KK for a cent9 slice (sum over k*).
+static TH1* projectMkkForCentSlice(TH3* h3, Int_t cent9Min, Int_t cent9Max, const char* hname) {
+  if (!h3) return 0;
+  Int_t zLo = h3->GetZaxis()->FindBin((Double_t)cent9Min - 0.01);
+  Int_t zHi = h3->GetZaxis()->FindBin((Double_t)cent9Max + 0.01);
+  TString name = hname ? hname : "_mkk_cent_proj";
+  TH1D* h1 = new TH1D(name, Form("%s (cent9 %d-%d)", h3->GetTitle(), cent9Min, cent9Max), h3->GetNbinsX(),
+                      h3->GetXaxis()->GetXmin(), h3->GetXaxis()->GetXmax());
+  h1->SetDirectory(0);
+  if (!h1->GetSumw2N()) h1->Sumw2();
+  for (Int_t ix = 1; ix <= h3->GetNbinsX(); ++ix) {
+    Double_t sum = 0.0;
+    Double_t sumErr2 = 0.0;
+    for (Int_t iy = 1; iy <= h3->GetNbinsY(); ++iy) {
+      for (Int_t iz = zLo; iz <= zHi; ++iz) {
+        sum += h3->GetBinContent(ix, iy, iz);
+        const Double_t err = h3->GetBinError(ix, iy, iz);
+        sumErr2 += err * err;
+      }
+    }
+    h1->SetBinContent(ix, sum);
+    h1->SetBinError(ix, TMath::Sqrt(sumErr2));
+  }
+  return h1;
+}
+
+// method 5: constant phi M_KK purity P for slice (gaus + const fit on SE MKK projection).
+static Bool_t estimatePhiMassPurityForSlice(TFile* fin, const FemtoConfig::CfCentSlice& slice,
+                                            const std::string& channelBase, Double_t& purity,
+                                            Double_t& errPurity) {
+  purity = 0.0;
+  errPurity = 0.0;
+
+  if (gConfigLoaded) {
+    const FemtoConfig& fc = ConfigManager::GetInstance().GetFemtoConfig();
+    if (fc.cfSubPurityMode == "fixed") {
+      purity = fc.cfSubPurityFixed;
+      errPurity = 0.0;
+      return purity > 0.0;
+    }
+  }
+
+  const std::string chSig = channelSignal(channelBase);
+  Double_t sigMin = 1.01;
+  Double_t sigMax = 1.03;
+  getChannelSignalMassWindow(chSig, sigMin, sigMax);
+
+  Bool_t useConstBkg = kTRUE;
+  Double_t sigmaMin = 0.002;
+  Double_t sigmaMax = 0.020;
+  if (gConfigLoaded) {
+    const FemtoConfig& fc = ConfigManager::GetInstance().GetFemtoConfig();
+    useConstBkg = fc.purityFitUseConstantBkg;
+    sigmaMin = fc.purityFitGaussSigmaMin;
+    sigmaMax = fc.purityFitGaussSigmaMax;
+  }
+
+  TH1* hMkk = 0;
+  TH3* h3SE = (TH3*)fin->Get(phiMkkVsKstarSeKey(chSig).c_str());
+  if (h3SE) {
+    // Signal-channel TH3 is already mass-window selected at fill; fit gaus+const on SE
+    // projection (no SE-ME). SE-ME on a truncated window is unstable for constant P.
+    hMkk = projectMkkForCentSlice(h3SE, slice.cent9Min, slice.cent9Max, "_mkk_purity_slice");
+  }
+
+  Double_t lambdaSig = 0.0;
+  Double_t lambdaBkg = 0.0;
+  Double_t errLam = 0.0;
+  Bool_t ok = kFALSE;
+  if (hMkk) {
+    ok = fitLambdaFromSubMass(hMkk, sigMin, sigMax, sigmaMin, sigmaMax, useConstBkg, lambdaSig, lambdaBkg, errLam);
+  }
+  if (!ok) {
+    delete hMkk;
+    hMkk = 0;
+    TH1* hFallback = (TH1*)fin->Get("hPhi_MKK");
+    if (!hFallback) hFallback = (TH1*)fin->Get("hPhi_MKK_signal");
+    if (hFallback) {
+      hMkk = (TH1*)hFallback->Clone("_mkk_purity_fallback");
+      hMkk->SetDirectory(0);
+      // For inclusive hPhi_MKK, allow a wider fit window around the peak.
+      Double_t fitMin = sigMin;
+      Double_t fitMax = sigMax;
+      if (fin->Get("hPhi_MKK") == hFallback) {
+        fitMin = 0.99;
+        fitMax = 1.06;
+      }
+      ok = fitLambdaFromSubMass(hMkk, fitMin, fitMax, sigmaMin, sigmaMax, useConstBkg, lambdaSig, lambdaBkg,
+                                errLam);
+      // Recompute P in the analysis signal window if fit used a wider range.
+      if (ok && (fitMin < sigMin - 1e-9 || fitMax > sigMax + 1e-9)) {
+        // Keep lambdaSig from fit as purity proxy in signal window (gaus+const ratio).
+      }
+    }
+  }
+  if (!ok && gConfigLoaded) {
+    // Last resort: YAML fixed purity so method5 pages still produce CFsub.
+    const FemtoConfig& fc = ConfigManager::GetInstance().GetFemtoConfig();
+    if (fc.cfSubPurityFixed > 0.0 && fc.cfSubPurityFixed <= 1.0) {
+      purity = fc.cfSubPurityFixed;
+      errPurity = 0.0;
+      delete hMkk;
+      std::cout << "[checkHistAnaFemtoPhi] purity fit failed for " << channelBase << " " << slice.id
+                << "; using cfSubPurityFixed=" << purity << "\n";
+      return kTRUE;
+    }
+  }
+  delete hMkk;
+  if (!ok || lambdaSig <= 0.0) return kFALSE;
+
+  Double_t clampMin = 0.05;
+  Double_t clampMax = 1.0;
+  if (gConfigLoaded) {
+    const FemtoConfig& fc = ConfigManager::GetInstance().GetFemtoConfig();
+    clampMin = fc.purityClampMin;
+    clampMax = fc.purityClampMax;
+  }
+  if (lambdaSig < clampMin) lambdaSig = clampMin;
+  if (lambdaSig > clampMax) lambdaSig = clampMax;
+
+  purity = lambdaSig;
+  // Cap pathological fit error so CF bars stay usable; full cov is a later systematic.
+  errPurity = errLam;
+  if (errPurity > 0.5) errPurity = 0.5;
+  return kTRUE;
+}
+
+static TGraphErrors* applyPurityCfCorrection(TGraphErrors* gSig, TGraphErrors* gSB, Double_t purity,
+                                             Double_t errPurity, const char* graphTitle) {
+  if (!gSig || !gSB || purity <= 0.0) return 0;
+
+  std::vector<Double_t> x;
+  std::vector<Double_t> y;
+  std::vector<Double_t> ey;
+  const Double_t oneMinusP = 1.0 - purity;
+
+  for (Int_t ip = 0; ip < gSig->GetN(); ++ip) {
+    const Double_t kstar = gSig->GetX()[ip];
+    const Double_t cSig = gSig->GetY()[ip];
+    const Double_t eSig = gSig->GetEY()[ip];
+
+    Double_t eSB = 0.0;
+    const Double_t cSB = interpGraphY(gSB, kstar, &eSB);
+    if (cSB < 0.0) continue;
+
+    const Double_t cCorr = (cSig - oneMinusP * cSB) / purity;
+    // Independent-error starting point: sigma^2 = (sig_sig^2 + (1-P)^2 sig_SB^2) / P^2
+    Double_t eCorr =
+        TMath::Sqrt(TMath::Power(eSig / purity, 2) + TMath::Power(oneMinusP * eSB / purity, 2));
+    if (errPurity > 0.0) {
+      const Double_t dCorrDP = -(cSig - cSB) / (purity * purity);
+      eCorr = TMath::Sqrt(eCorr * eCorr + TMath::Power(dCorrDP * errPurity, 2));
+    }
+
+    x.push_back(kstar);
+    y.push_back(cCorr);
+    ey.push_back(eCorr);
+  }
+
+  if (x.empty()) return 0;
+  TGraphErrors* gOut = new TGraphErrors((Int_t)x.size(), &x[0], &y[0], 0, &ey[0]);
+  gOut->SetTitle(graphTitle ? graphTitle : "C_{CFsub}(k^{*})");
+  gOut->SetMarkerStyle(21);
+  gOut->SetMarkerColor(kRed + 1);
+  gOut->SetLineColor(kRed + 1);
+  return gOut;
+}
+
+static TGraphErrors* computeCfFromProjectedWithRebin(TH1* hSE, TH1* hME, Int_t rebinFactor, Double_t normQMin,
+                                                     Double_t normQMax, const char* title) {
+  if (!hSE || !hME) return 0;
+  TH1* seUse = hSE;
+  TH1* meUse = hME;
+  TH1* seReb = 0;
+  TH1* meReb = 0;
+  if (rebinFactor > 1) {
+    seReb = rebinHistCopy(hSE, rebinFactor, "_cfsub_se");
+    meReb = rebinHistCopy(hME, rebinFactor, "_cfsub_me");
+    if (seReb) seUse = seReb;
+    if (meReb) meUse = meReb;
+  }
+  TGraphErrors* g = computeCfGraphFromSeMe(seUse, meUse, normQMin, normQMax, title);
+  delete seReb;
+  delete meReb;
+  return g;
+}
+
+static TGraphErrors* getOrComputeSliceSbCfForMethod5(TFile* fin, const std::string& sliceId, Int_t cent9Min,
+                                                     Int_t cent9Max, const std::string& channelBase,
+                                                     const std::string& sbTag, Double_t normQMin, Double_t normQMax,
+                                                     Int_t rebinFactor, std::map<std::string, TGraphErrors*>& cfCache) {
+  const std::string cacheKey = cfSliceCacheKey(sliceId, channelBase + ":CF_SB_" + sbTag);
+  std::map<std::string, TGraphErrors*>::const_iterator cached = cfCache.find(cacheKey);
+  if (cached != cfCache.end()) return cached->second;
+
+  TH1* hSE = 0;
+  TH1* hME = 0;
+  if (sbTag == "SBLR") {
+    const std::string chL = channelLeftSb(channelBase);
+    const std::string chR = channelRightSb(channelBase);
+    TH1* hSEL = getSliceProjectedSeMe(fin, chL, kTRUE, cent9Min, cent9Max);
+    TH1* hSER = getSliceProjectedSeMe(fin, chR, kTRUE, cent9Min, cent9Max);
+    TH1* hMEL = getSliceProjectedSeMe(fin, chL, kFALSE, cent9Min, cent9Max);
+    TH1* hMER = getSliceProjectedSeMe(fin, chR, kFALSE, cent9Min, cent9Max);
+    if (hSEL && !hSEL->GetSumw2N()) hSEL->Sumw2();
+    if (hSER && !hSER->GetSumw2N()) hSER->Sumw2();
+    if (hMEL && !hMEL->GetSumw2N()) hMEL->Sumw2();
+    if (hMER && !hMER->GetSumw2N()) hMER->Sumw2();
+    hSE = combineSidebandLR(hSEL, hSER);
+    hME = combineSidebandLR(hMEL, hMER);
+    delete hSEL;
+    delete hSER;
+    delete hMEL;
+    delete hMER;
+  } else {
+    hSE = getSliceProjectedSeMe(fin, sbTag, kTRUE, cent9Min, cent9Max);
+    hME = getSliceProjectedSeMe(fin, sbTag, kFALSE, cent9Min, cent9Max);
+    if (hSE && !hSE->GetSumw2N()) hSE->Sumw2();
+    if (hME && !hME->GetSumw2N()) hME->Sumw2();
+  }
+
+  TString title = Form("CF_SB %s %s %s", channelBase.c_str(), sbTag.c_str(), sliceId.c_str());
+  TGraphErrors* g = computeCfFromProjectedWithRebin(hSE, hME, rebinFactor, normQMin, normQMax, title.Data());
+  delete hSE;
+  delete hME;
+  cfCache[cacheKey] = g;
+  return g;
+}
+
+static TGraphErrors* getOrComputeSliceSigCfForMethod5(TFile* fin, const std::string& sliceId, Int_t cent9Min,
+                                                      Int_t cent9Max, const std::string& channelBase,
+                                                      Double_t normQMin, Double_t normQMax, Int_t rebinFactor,
+                                                      std::map<std::string, TGraphErrors*>& cfCache) {
+  const std::string cacheKey = cfSliceCacheKey(sliceId, std::string("CF_sig_method5_") + channelBase);
+  std::map<std::string, TGraphErrors*>::const_iterator cached = cfCache.find(cacheKey);
+  if (cached != cfCache.end()) return cached->second;
+
+  const std::string chSig = channelSignal(channelBase);
+  // Prefer standard cache when rebin matches global factor.
+  if (rebinFactor == getCfRebinFactor()) {
+    TGraphErrors* gStd =
+        getOrComputeSliceChannelCf(fin, sliceId, cent9Min, cent9Max, chSig, normQMin, normQMax, cfCache);
+    cfCache[cacheKey] = gStd;
+    return gStd;
+  }
+
+  TH1* hSE = getSliceProjectedSeMe(fin, chSig, kTRUE, cent9Min, cent9Max);
+  TH1* hME = getSliceProjectedSeMe(fin, chSig, kFALSE, cent9Min, cent9Max);
+  if (hSE && !hSE->GetSumw2N()) hSE->Sumw2();
+  if (hME && !hME->GetSumw2N()) hME->Sumw2();
+  TString title = Form("CF_sig method5 %s %s", channelBase.c_str(), sliceId.c_str());
+  TGraphErrors* g = computeCfFromProjectedWithRebin(hSE, hME, rebinFactor, normQMin, normQMax, title.Data());
+  delete hSE;
+  delete hME;
+  cfCache[cacheKey] = g;
+  return g;
+}
+
+static TGraphErrors* computeCfSubMethod5Graph(TFile* fin, const FemtoConfig::CfCentSlice& slice,
+                                              const std::string& channelBase, Double_t normQMin, Double_t normQMax,
+                                              std::map<std::string, TGraphErrors*>& cfCache,
+                                              std::map<std::string, Double_t>& purityCache) {
+  const std::string cacheKey = cfSliceCacheKey(slice.id, std::string("CF_CFsub_SBLR_") + channelBase);
+  std::map<std::string, TGraphErrors*>::const_iterator cached = cfCache.find(cacheKey);
+  if (cached != cfCache.end()) return cached->second;
+
+  const Int_t rebinFactor = getCfSubEffectiveRebin(channelBase);
+  TGraphErrors* gSig = getOrComputeSliceSigCfForMethod5(fin, slice.id, slice.cent9Min, slice.cent9Max, channelBase,
+                                                        normQMin, normQMax, rebinFactor, cfCache);
+
+  std::string combine = "sumLR";
+  if (gConfigLoaded) combine = ConfigManager::GetInstance().GetFemtoConfig().cfSubSidebandCombine;
+  TGraphErrors* gSB = 0;
+  if (combine == "avgCF_LR") {
+    TGraphErrors* gL = getOrComputeSliceSbCfForMethod5(fin, slice.id, slice.cent9Min, slice.cent9Max, channelBase,
+                                                       channelLeftSb(channelBase), normQMin, normQMax, rebinFactor,
+                                                       cfCache);
+    TGraphErrors* gR = getOrComputeSliceSbCfForMethod5(fin, slice.id, slice.cent9Min, slice.cent9Max, channelBase,
+                                                       channelRightSb(channelBase), normQMin, normQMax, rebinFactor,
+                                                       cfCache);
+    if (gL && gR) {
+      // Pointwise average of L and R CFs (systematic combine mode).
+      std::vector<Double_t> x, y, ey;
+      for (Int_t ip = 0; ip < gL->GetN(); ++ip) {
+        const Double_t k = gL->GetX()[ip];
+        Double_t eR = 0.0;
+        const Double_t yR = interpGraphY(gR, k, &eR);
+        if (yR < 0.0) continue;
+        const Double_t yAvg = 0.5 * (gL->GetY()[ip] + yR);
+        const Double_t eAvg = 0.5 * TMath::Sqrt(TMath::Power(gL->GetEY()[ip], 2) + TMath::Power(eR, 2));
+        x.push_back(k);
+        y.push_back(yAvg);
+        ey.push_back(eAvg);
+      }
+      if (!x.empty()) {
+        gSB = new TGraphErrors((Int_t)x.size(), &x[0], &y[0], 0, &ey[0]);
+        gSB->SetTitle(Form("CF_SB avgCF_LR %s %s", channelBase.c_str(), slice.id.c_str()));
+        cfCache[cfSliceCacheKey(slice.id, channelBase + ":CF_SB_avgCF_LR")] = gSB;
+      }
+    }
+  } else {
+    gSB = getOrComputeSliceSbCfForMethod5(fin, slice.id, slice.cent9Min, slice.cent9Max, channelBase, "SBLR",
+                                          normQMin, normQMax, rebinFactor, cfCache);
+  }
+
+  if (!gSig || !gSB) {
+    cfCache[cacheKey] = 0;
+    return 0;
+  }
+
+  Double_t purity = 0.0;
+  Double_t errPurity = 0.0;
+  if (!estimatePhiMassPurityForSlice(fin, slice, channelBase, purity, errPurity)) {
+    std::cout << "[checkHistAnaFemtoPhi] CF_CFsub " << channelBase << " " << slice.id << ": purity fit failed\n";
+    cfCache[cacheKey] = 0;
+    return 0;
+  }
+  purityCache[cfSliceCacheKey(slice.id, std::string("phi_mass_purity_") + channelBase)] = purity;
+  purityCache[cfSliceCacheKey(slice.id, std::string("phi_mass_purity_err_") + channelBase)] = errPurity;
+
+  std::cout << "[checkHistAnaFemtoPhi] CF_CFsub " << channelBase << " " << slice.id << ": P=" << purity << " +/- "
+            << errPurity << " rebin=" << rebinFactor << " combine=" << combine << " (cent9 " << slice.cent9Min << "-"
+            << slice.cent9Max << ")\n";
+
+  TString title = Form("C_{CFsub}(k^{*}) %s %s (P=%.3f)", channelBase.c_str(), slice.id.c_str(), purity);
+  TGraphErrors* gSub = applyPurityCfCorrection(gSig, gSB, purity, errPurity, title.Data());
+  cfCache[cacheKey] = gSub;
+  if (gSub) {
+    std::cout << "[checkHistAnaFemtoPhi] CF_CFsub " << channelBase << " " << slice.id << ": " << gSub->GetN()
+              << " points\n";
+  }
+
+  // Also build left/right CFsub for systematic comparison (cached).
+  TGraphErrors* gSBL = getOrComputeSliceSbCfForMethod5(fin, slice.id, slice.cent9Min, slice.cent9Max, channelBase,
+                                                       channelLeftSb(channelBase), normQMin, normQMax, rebinFactor,
+                                                       cfCache);
+  TGraphErrors* gSBR = getOrComputeSliceSbCfForMethod5(fin, slice.id, slice.cent9Min, slice.cent9Max, channelBase,
+                                                       channelRightSb(channelBase), normQMin, normQMax, rebinFactor,
+                                                       cfCache);
+  if (gSig && gSBL) {
+    TString tL = Form("C_{CFsub,SBL} %s %s", channelBase.c_str(), slice.id.c_str());
+    cfCache[cfSliceCacheKey(slice.id, std::string("CF_CFsub_SBL_") + channelBase)] =
+        applyPurityCfCorrection(gSig, gSBL, purity, errPurity, tL.Data());
+  }
+  if (gSig && gSBR) {
+    TString tR = Form("C_{CFsub,SBR} %s %s", channelBase.c_str(), slice.id.c_str());
+    cfCache[cfSliceCacheKey(slice.id, std::string("CF_CFsub_SBR_") + channelBase)] =
+        applyPurityCfCorrection(gSig, gSBR, purity, errPurity, tR.Data());
+  }
+  return gSub;
+}
+
+static void populateMethod5CachesForBase(TFile* fin, const std::string& channelBase,
+                                         std::map<std::string, TGraphErrors*>& cfCache,
+                                         std::map<std::string, Double_t>& purityCache) {
+  if (!isMethod5Enabled()) return;
+  const std::vector<FemtoConfig::CfCentSlice> slices = getCfCentSliceList();
+  const std::string chSig = channelSignal(channelBase);
+  const Double_t normQMin = channelNormQMin(chSig);
+  const Double_t normQMax = channelNormQMax(chSig);
+  for (size_t is = 0; is < slices.size(); ++is) {
+    computeCfSubMethod5Graph(fin, slices[is], channelBase, normQMin, normQMax, cfCache, purityCache);
+  }
+}
+
+static void populateMethod5Caches(TFile* fin, std::map<std::string, TGraphErrors*>& cfCache,
+                                  std::map<std::string, Double_t>& purityCache) {
+  for (Int_t ib = 0; kChannelBases[ib]; ++ib) {
+    populateMethod5CachesForBase(fin, std::string(kChannelBases[ib]), cfCache, purityCache);
+  }
+}
+
+static TString sanitizeGraphName(const std::string& key) {
+  TString name(key.c_str());
+  name.ReplaceAll(":", "_");
+  name.ReplaceAll("-", "_");
+  name.ReplaceAll("/", "_");
+  name.ReplaceAll(" ", "_");
+  return name;
+}
+
+static void writeCfSubSidecarRoot(const TString& outDir, const TString& anaName, const TString& jobid,
+                                  const Char_t* inputRootFile, const Char_t* mainconfPath,
+                                  std::map<std::string, TGraphErrors*>& cfCache,
+                                  const std::map<std::string, Double_t>& purityCache) {
+  if (!isCfSubWriteSidecar() || !isMethod5Enabled()) return;
+
+  TString outPath = outDir + anaName + "_checkHistAnaFemtoPhi_CFsub";
+  if (jobid.Length()) outPath += "_" + jobid;
+  outPath += ".root";
+
+  TFile* fout = TFile::Open(outPath, "RECREATE");
+  if (!fout || fout->IsZombie()) {
+    std::cerr << "[checkHistAnaFemtoPhi] WARNING: cannot write sidecar " << outPath << std::endl;
+    return;
+  }
+
+  // Persist method5 / related CF graphs without overwriting Maker products.
+  for (std::map<std::string, TGraphErrors*>::iterator it = cfCache.begin(); it != cfCache.end(); ++it) {
+    if (!it->second) continue;
+    const std::string& key = it->first;
+    const Bool_t keep = (key.find("CF_CFsub_") != std::string::npos) ||
+                        (key.find("CF_sig_method5_") != std::string::npos) ||
+                        (key.find(":CF_SB_") != std::string::npos) ||
+                        (key.find("CF_genuine_") != std::string::npos) ||
+                        (key.find("lambda_sig_") != std::string::npos) ||
+                        (key.find("CF_bkg_me_") != std::string::npos) ||
+                        (key.find(":CF_sig_sub_") != std::string::npos) ||
+                        (key.find(":SBLR") != std::string::npos);
+    if (!keep) continue;
+    TGraphErrors* clone = (TGraphErrors*)it->second->Clone(sanitizeGraphName(key));
+    if (clone) {
+      clone->Write();
+      delete clone;
+    }
+  }
+
+  for (std::map<std::string, Double_t>::const_iterator it = purityCache.begin(); it != purityCache.end(); ++it) {
+    TParameter<Double_t> p(sanitizeGraphName(it->first), it->second);
+    p.Write();
+  }
+
+  TNamed metaInput("meta_inputRoot", inputRootFile ? inputRootFile : "");
+  metaInput.Write();
+  TNamed metaMain("meta_mainconf", mainconfPath ? mainconfPath : "");
+  metaMain.Write();
+  TNamed metaJob("meta_jobid", jobid.Data());
+  metaJob.Write();
+  TNamed metaMode("meta_cfSubtractionMode",
+                  gConfigLoaded ? ConfigManager::GetInstance().GetFemtoConfig().cfSubtractionMode.c_str()
+                                : "method5");
+  metaMode.Write();
+  TNamed metaPurityMode("meta_cfSubPurityMode",
+                        gConfigLoaded ? ConfigManager::GetInstance().GetFemtoConfig().cfSubPurityMode.c_str()
+                                      : "fit_slice");
+  metaPurityMode.Write();
+  TNamed metaCombine("meta_cfSubSidebandCombine",
+                     gConfigLoaded ? ConfigManager::GetInstance().GetFemtoConfig().cfSubSidebandCombine.c_str()
+                                   : "sumLR");
+  metaCombine.Write();
+  TParameter<Int_t> pRebin("meta_cfRebinFactor", getCfRebinFactor());
+  pRebin.Write();
+  if (gConfigLoaded) {
+    const FemtoConfig& fc = ConfigManager::GetInstance().GetFemtoConfig();
+    TParameter<Int_t> pExtra("meta_cfSubLowStatsRebinExtra", fc.cfSubLowStatsRebinExtra);
+    pExtra.Write();
+    TParameter<Double_t> pFixed("meta_cfSubPurityFixed", fc.cfSubPurityFixed);
+    pFixed.Write();
+  }
+
+  fout->Write();
+  fout->Close();
+  delete fout;
+  std::cout << "[checkHistAnaFemtoPhi] Wrote CFsub sidecar: " << outPath << std::endl;
+}
+
+static void dumpMethod5ConfigLog(const std::map<std::string, Double_t>& purityCache) {
+  std::cout << "\n=== method5 CF-subtraction parameters ===\n";
+  if (gConfigLoaded) {
+    const FemtoConfig& fc = ConfigManager::GetInstance().GetFemtoConfig();
+    std::cout << "  cfSubtractionMode=" << fc.cfSubtractionMode << "\n";
+    std::cout << "  cfSubPurityMode=" << fc.cfSubPurityMode << "\n";
+    std::cout << "  cfSubPurityFixed=" << fc.cfSubPurityFixed << "\n";
+    std::cout << "  cfSubSidebandCombine=" << fc.cfSubSidebandCombine << "\n";
+    std::cout << "  cfSubWriteSidecarRoot=" << (fc.cfSubWriteSidecarRoot ? "true" : "false") << "\n";
+    std::cout << "  cfSubLowStatsRebinExtra=" << fc.cfSubLowStatsRebinExtra << "\n";
+    std::cout << "  cfRebinFactor=" << fc.cfRebinFactor << "\n";
+    std::cout << "  negativeBinPolicy=" << fc.negativeBinPolicy << "\n";
+  } else {
+    std::cout << "  (config not loaded; using method5 defaults)\n";
+  }
+  std::cout << "  fitted slice purities:\n";
+  for (std::map<std::string, Double_t>::const_iterator it = purityCache.begin(); it != purityCache.end(); ++it) {
+    if (it->first.find("phi_mass_purity_err_") != std::string::npos) continue;
+    if (it->first.find("phi_mass_purity_") == std::string::npos) continue;
+    Double_t err = 0.0;
+    std::string errKey = it->first;
+    const std::string needle = "phi_mass_purity_";
+    size_t pos = errKey.find(needle);
+    if (pos != std::string::npos) {
+      errKey.replace(pos, needle.size(), "phi_mass_purity_err_");
+      std::map<std::string, Double_t>::const_iterator itE = purityCache.find(errKey);
+      if (itE != purityCache.end()) err = itE->second;
+    }
+    std::cout << "    " << it->first << " = " << it->second << " +/- " << err << "\n";
+  }
+  std::cout << "=========================================\n\n";
+}
+
 static void populatePurityGenuineCachesForBase(TFile* fin, const std::string& channelBase,
                                                std::map<std::string, TGraphErrors*>& cfCache) {
   const std::vector<FemtoConfig::CfCentSlice> slices = getCfCentSliceList();
@@ -1554,6 +2107,7 @@ static void populatePurityGenuineCachesForBase(TFile* fin, const std::string& ch
 }
 
 static void populatePurityGenuineCaches(TFile* fin, std::map<std::string, TGraphErrors*>& cfCache) {
+  if (!isLegacyCfPagesEnabled()) return;
   for (Int_t ib = 0; kChannelBases[ib]; ++ib) {
     populatePurityGenuineCachesForBase(fin, std::string(kChannelBases[ib]), cfCache);
   }
@@ -1625,6 +2179,2507 @@ static void drawGenuineCfSlicePageForBase(TCanvas* canvas, TFile* fin, const Fem
   }
 }
 
+// ---------------------------------------------------------------------------
+// Kubo-rule combinatorial background for h-phi (h-K correlations extension).
+//
+// Same three triplet histograms feed both constructions (apples-to-apples):
+//   Old (pseudo-phi, average): C_bkg = norm(N_SEKp + N_SEKm)/N_ref -> 1 + (a+b)/2
+//   New (Kubo, sum):           C_bkg = R+ + R- - 1                 -> 1 + (a+b)
+// with R+/- = norm(N_SEKp,m)/N_ref, a = C_hK+ - 1, b = C_hK- - 1. See plan section 1.
+// ---------------------------------------------------------------------------
+
+static std::string tripSeKpHistKey(const std::string& base) { return std::string("hKstarTripSEKp_") + base; }
+static std::string tripSeKmHistKey(const std::string& base) { return std::string("hKstarTripSEKm_") + base; }
+static std::string tripMixHistKey(const std::string& base) { return std::string("hKstarTripMix_") + base; }
+
+// Build old-average and Kubo-sum background CF graphs from the three triplet histograms.
+static void computeKuboBkgGraphs(TFile* fin, const std::string& base, Double_t normQMin, Double_t normQMax,
+                                 TGraphErrors** gOldOut, TGraphErrors** gKuboOut) {
+  *gOldOut = 0;
+  *gKuboOut = 0;
+  TH1* hKp = (TH1*)fin->Get(tripSeKpHistKey(base).c_str());
+  TH1* hKm = (TH1*)fin->Get(tripSeKmHistKey(base).c_str());
+  TH1* hRef = (TH1*)fin->Get(tripMixHistKey(base).c_str());
+  if (!hKp || !hKm || !hRef) return;
+
+  const Int_t rb = getCfRebinFactor();
+  TH1* hKpR = rebinHistCopy(hKp, rb, "_kubo_kp");
+  TH1* hKmR = rebinHistCopy(hKm, rb, "_kubo_km");
+  TH1* hRefR = rebinHistCopy(hRef, rb, "_kubo_ref");
+  if (!hKpR) { hKpR = (TH1*)hKp->Clone("_kubo_kp"); hKpR->SetDirectory(0); }
+  if (!hKmR) { hKmR = (TH1*)hKm->Clone("_kubo_km"); hKmR->SetDirectory(0); }
+  if (!hRefR) { hRefR = (TH1*)hRef->Clone("_kubo_ref"); hRefR->SetDirectory(0); }
+
+  // Old (average): the two SE-K terms fill one histogram, normalized so CF -> 1 at high k*.
+  TH1* hSum = (TH1*)hKpR->Clone("_kubo_sum");
+  hSum->SetDirectory(0);
+  hSum->Add(hKmR);
+  *gOldOut = computeCfGraphFromSeMe(hSum, hRefR, normQMin, normQMax,
+                                    Form("C_{bkg}^{old} %s;k^{*} [GeV/c];C_{bkg}(k^{*})", base.c_str()));
+
+  // Kubo (sum): R+ + R- - 1, each R normalized to unity in the norm band, computed bin-by-bin (aligned bins).
+  const Int_t binLo = hRefR->FindBin(normQMin + 1e-9);
+  const Int_t binHi = hRefR->FindBin(normQMax - 1e-9);
+  const Double_t refNorm = hRefR->Integral(binLo, binHi);
+  const Double_t kpNorm = hKpR->Integral(binLo, binHi);
+  const Double_t kmNorm = hKmR->Integral(binLo, binHi);
+  if (refNorm > 0.0 && kpNorm > 0.0 && kmNorm > 0.0) {
+    const Double_t scaleKp = refNorm / kpNorm;
+    const Double_t scaleKm = refNorm / kmNorm;
+    std::vector<Double_t> x, y, ey;
+    for (Int_t ib = 1; ib <= hRefR->GetNbinsX(); ++ib) {
+      const Double_t kp = hKpR->GetBinContent(ib);
+      const Double_t km = hKmR->GetBinContent(ib);
+      const Double_t rf = hRefR->GetBinContent(ib);
+      if (kp <= 0.0 || km <= 0.0 || rf <= 0.0) continue;
+      const Double_t rp = scaleKp * kp / rf;
+      const Double_t rm = scaleKm * km / rf;
+      const Double_t erp = rp * TMath::Sqrt(1.0 / kp + 1.0 / rf);
+      const Double_t erm = rm * TMath::Sqrt(1.0 / km + 1.0 / rf);
+      x.push_back(hRefR->GetBinCenter(ib));
+      y.push_back(rp + rm - 1.0);
+      ey.push_back(TMath::Sqrt(erp * erp + erm * erm));
+    }
+    if (!x.empty()) {
+      TGraphErrors* gKubo = new TGraphErrors((Int_t)x.size(), &x[0], &y[0], 0, &ey[0]);
+      gKubo->SetTitle(Form("C_{bkg}^{Kubo} %s;k^{*} [GeV/c];C_{bkg}(k^{*})", base.c_str()));
+      *gKuboOut = gKubo;
+    }
+  }
+  delete hKpR;
+  delete hKmR;
+  delete hRefR;
+  delete hSum;
+}
+
+// ALICE-style lambda decomposition with a supplied background CF (same algebra/Jacobian as
+// computeGenuineCfGraph): C_gen = 1 + [ (C_meas-1) - lambda_bkg (C_bkg-1) ] / lambda_sig.
+static TGraphErrors* computeGenuineFromParts(TGraphErrors* gMeas, TGraphErrors* gBkg, TGraphErrors* gLambda,
+                                             const char* title) {
+  if (!gMeas || !gBkg || !gLambda) return 0;
+  std::vector<Double_t> x, y, ey;
+  for (Int_t ip = 0; ip < gMeas->GetN(); ++ip) {
+    const Double_t kstar = gMeas->GetX()[ip];
+    const Double_t cMeas = gMeas->GetY()[ip];
+    const Double_t eMeas = gMeas->GetEY()[ip];
+    Double_t eBkg = 0.0;
+    const Double_t cBkg = interpGraphY(gBkg, kstar, &eBkg);
+    Double_t eLam = 0.0;
+    const Double_t lambdaSig = interpGraphY(gLambda, kstar, &eLam);
+    if (cBkg < 0.0 || lambdaSig <= 0.0) continue;
+    const Double_t lambdaBkg = 1.0 - lambdaSig;
+    const Double_t numer = (cMeas - 1.0) - lambdaBkg * (cBkg - 1.0);
+    const Double_t cGen = 1.0 + numer / lambdaSig;
+    const Double_t dGenDcMeas = 1.0 / lambdaSig;
+    const Double_t dGenDcBkg = -lambdaBkg / lambdaSig;
+    const Double_t dGenDLam = (cBkg - 1.0) / lambdaSig - numer / (lambdaSig * lambdaSig);
+    const Double_t err = TMath::Sqrt(TMath::Power(dGenDcMeas * eMeas, 2) + TMath::Power(dGenDcBkg * eBkg, 2) +
+                                     TMath::Power(dGenDLam * eLam, 2));
+    x.push_back(kstar);
+    y.push_back(cGen);
+    ey.push_back(err);
+  }
+  if (x.empty()) return 0;
+  TGraphErrors* g = new TGraphErrors((Int_t)x.size(), &x[0], &y[0], 0, &ey[0]);
+  g->SetTitle(title ? title : "C_{genuine}(k^{*})");
+  return g;
+}
+
+// Kubo pages for one base (p or d): K1 = old vs Kubo C_bkg; K2 = old vs Kubo genuine CF + ratio panel.
+static void drawKuboPagesForBase(TCanvas* c1, TFile* fin, const std::string& base, const TString& pdfName,
+                                 std::map<std::string, TGraphErrors*>& cfCache) {
+  if (!c1) return;
+  const std::string chSig = channelSignal(base);
+  const Double_t normQMin = channelNormQMin(chSig);
+  const Double_t normQMax = channelNormQMax(chSig);
+
+  TGraphErrors* gOld = 0;
+  TGraphErrors* gKubo = 0;
+  computeKuboBkgGraphs(fin, base, normQMin, normQMax, &gOld, &gKubo);
+  cfCache[std::string("kubo:CF_bkg_old_") + base] = gOld;
+  cfCache[std::string("kubo:CF_bkg_kubo_") + base] = gKubo;
+
+  // Page K1: old (average) vs Kubo (sum) background CF.
+  c1->Clear();
+  c1->Divide(1, 1);
+  c1->cd(1);
+  drawCfGraphOverlay(gOld, gKubo, "C_{bkg}^{old} (pseudo-#phi avg)", "C_{bkg}^{Kubo} (sum)");
+  if (gPad) {
+    TLatex* lat = new TLatex();
+    lat->SetNDC(kTRUE);
+    lat->SetTextSize(0.03);
+    lat->DrawLatex(0.02, 0.98, Form("Kubo background %s: old (avg) vs Kubo (sum)", base.c_str()));
+  }
+  c1->Print(pdfName);
+
+  if (!isKuboGenuineEnabled()) return;
+
+  // Page K2: old-bkg vs Kubo-bkg genuine CF (same C_meas, same lambda_sig), with Kubo/old ratio.
+  Int_t cent9Min = 0;
+  Int_t cent9Max = 0;
+  getCfCent9Range(cent9Min, cent9Max);
+  FemtoConfig::CfCentSlice slice;
+  slice.id = std::string("kubo_integrated_") + base;
+  slice.cent9Min = cent9Min;
+  slice.cent9Max = cent9Max;
+  TGraphErrors* gMeas =
+      getOrComputeSliceChannelCf(fin, slice.id, cent9Min, cent9Max, chSig, normQMin, normQMax, cfCache);
+  TGraphErrors* gLambda = computeLambdaSigGraph(fin, slice, base);
+  cfCache[std::string("kubo:lambda_sig_") + base] = gLambda;
+
+  TGraphErrors* gGenOld =
+      computeGenuineFromParts(gMeas, gOld, gLambda, Form("C_{gen}^{old} %s", base.c_str()));
+  TGraphErrors* gGenKubo =
+      computeGenuineFromParts(gMeas, gKubo, gLambda, Form("C_{gen}^{Kubo} %s", base.c_str()));
+  cfCache[std::string("kubo:CF_genuine_old_") + base] = gGenOld;
+  cfCache[std::string("kubo:CF_genuine_kubo_") + base] = gGenKubo;
+
+  c1->Clear();
+  c1->Divide(2, 1);
+  c1->cd(1);
+  drawCfGraphOverlay(gGenOld, gGenKubo, "C_{gen} old-bkg", "C_{gen} Kubo-bkg");
+  if (gPad) {
+    TLatex* lat = new TLatex();
+    lat->SetNDC(kTRUE);
+    lat->SetTextSize(0.03);
+    lat->DrawLatex(0.02, 0.98, Form("%s genuine CF: old-bkg vs Kubo-bkg", base.c_str()));
+  }
+
+  c1->cd(2);
+  TGraphErrors* gRatio = 0;
+  if (gGenOld && gGenKubo) {
+    std::vector<Double_t> rx, ry, rey;
+    for (Int_t i = 0; i < gGenKubo->GetN(); ++i) {
+      const Double_t k = gGenKubo->GetX()[i];
+      Double_t eo = 0.0;
+      const Double_t co = interpGraphY(gGenOld, k, &eo);
+      if (co <= 0.0) continue;
+      rx.push_back(k);
+      ry.push_back(gGenKubo->GetY()[i] / co);
+      rey.push_back(0.0);
+    }
+    if (!rx.empty()) {
+      gRatio = new TGraphErrors((Int_t)rx.size(), &rx[0], &ry[0], 0, &rey[0]);
+      gRatio->SetTitle(Form("C_{gen}^{Kubo}/C_{gen}^{old} %s;k^{*} [GeV/c];ratio", base.c_str()));
+      gRatio->SetMarkerStyle(20);
+      gRatio->SetMarkerColor(kBlue + 1);
+      gRatio->SetLineColor(kBlue + 1);
+      gRatio->GetXaxis()->SetLimits(kCfKstarXMin, kCfKstarXMax);
+      gRatio->Draw("AP");
+      TH1* hFrame = gRatio->GetHistogram();
+      if (hFrame) {
+        hFrame->GetXaxis()->SetRangeUser(kCfKstarXMin, kCfKstarXMax);
+        hFrame->GetYaxis()->SetRangeUser(0.8, 1.3);
+      }
+      TLine* one = new TLine(kCfKstarXMin, 1.0, kCfKstarXMax, 1.0);
+      one->SetLineStyle(2);
+      one->SetLineColor(kGray + 2);
+      one->Draw("SAME");
+    }
+  }
+  cfCache[std::string("kubo:CF_genuine_ratio_") + base] = gRatio;
+  c1->Print(pdfName);
+}
+
+// ---------------------------------------------------------------------------
+// kstarMassFitCF (primary) and deprecated direct mass-fit / Topic 3 / Method 5.
+// ---------------------------------------------------------------------------
+
+static Bool_t isKstarMassFitCfWriteSidecar() {
+  if (!gConfigLoaded) return kTRUE;
+  return ConfigManager::GetInstance().GetFemtoConfig().kstarMassFitCfWriteSidecar;
+}
+
+static Double_t getKstarMassFitCfKstarBinTarget() {
+  if (!gConfigLoaded) return 0.050;
+  return ConfigManager::GetInstance().GetFemtoConfig().kstarMassFitCfKstarBinWidth;
+}
+
+static Int_t getKstarMassFitCfLowKstarMergeBins() {
+  if (!gConfigLoaded) return 1;
+  const Int_t n = ConfigManager::GetInstance().GetFemtoConfig().kstarMassFitCfLowKstarMergeBins;
+  return (n >= 1) ? n : 1;
+}
+
+static Bool_t getKstarMassFitCfAlphaSingleWindow(Double_t& mMin, Double_t& mMax) {
+  mMin = 0.0;
+  mMax = 0.0;
+  if (!gConfigLoaded) return kFALSE;
+  const FemtoConfig& fc = ConfigManager::GetInstance().GetFemtoConfig();
+  if (fc.kstarMassFitCfAlphaMassMax <= fc.kstarMassFitCfAlphaMassMin) return kFALSE;
+  mMin = fc.kstarMassFitCfAlphaMassMin;
+  mMax = fc.kstarMassFitCfAlphaMassMax;
+  return kTRUE;
+}
+
+static std::string kmfCacheSuffix(Double_t kstarBinTarget) {
+  if (kstarBinTarget <= 0.0) return "_native";
+  return Form("_dk%.0f", kstarBinTarget * 1000.0);
+}
+
+static std::string phiMkkVsKstarWideSeKey(const std::string& channelBase) {
+  return std::string("hPhiMKK_vs_KstarSE_") + channelBase + "_wide";
+}
+
+static std::string phiMkkVsKstarWideMeKey(const std::string& channelBase) {
+  return std::string("hPhiMKK_vs_KstarME_") + channelBase + "_wide";
+}
+
+struct KstarMassFitCfFitResult {
+  Bool_t ok;
+  Double_t nSig;
+  Double_t errNSig;
+  Double_t nBkg;
+  Double_t purity;
+  Double_t errPurity;
+  Double_t amp;
+  Double_t mean;
+  Double_t sigma;
+  Double_t polA;
+  Double_t polB;
+  Double_t polC;
+  Bool_t usedPol2;
+  KstarMassFitCfFitResult()
+      : ok(kFALSE),
+        nSig(0.0),
+        errNSig(0.0),
+        nBkg(0.0),
+        purity(0.0),
+        errPurity(0.0),
+        amp(0.0),
+        mean(0.0),
+        sigma(0.0),
+        polA(0.0),
+        polB(0.0),
+        polC(0.0),
+        usedPol2(kFALSE) {}
+};
+
+static Bool_t fitPurityOneModel(TH1* hMass, Double_t fitMin, Double_t fitMax, Double_t sigMin, Double_t sigMax,
+                                Double_t sigmaMin, Double_t sigmaMax, Bool_t usePol2, KstarMassFitCfFitResult& out) {
+  TString fname = Form("fm3_%lx_%d", (unsigned long)hMass, usePol2 ? 1 : 0);
+  TF1* f = 0;
+  if (usePol2) {
+    f = new TF1(fname + "_gp2", "gaus(0)+pol2(3)", fitMin, fitMax);
+  } else {
+    f = new TF1(fname + "_gc", "gaus(0)+[3]", fitMin, fitMax);
+  }
+  Double_t peak = hMass->GetMaximum();
+  Int_t maxBin = hMass->GetMaximumBin();
+  f->SetParameter(0, peak);
+  f->SetParameter(1, hMass->GetXaxis()->GetBinCenter(maxBin));
+  f->SetParameter(2, 0.006);
+  f->SetParLimits(2, sigmaMin, sigmaMax);
+  if (usePol2) {
+    f->SetParameter(3, 0.05 * peak);
+    f->SetParameter(4, 0.0);
+    f->SetParameter(5, 0.0);
+  } else {
+    f->SetParameter(3, 0.1 * peak);
+  }
+  Int_t fitStat = hMass->Fit(f, "RQ0");
+  if (fitStat != 0) {
+    delete f;
+    return kFALSE;
+  }
+  TF1* fGaus = new TF1(fname + "_gonly", "gaus", fitMin, fitMax);
+  fGaus->SetParameters(f->GetParameter(0), f->GetParameter(1), f->GetParameter(2));
+  Double_t nSig = fGaus->Integral(sigMin, sigMax);
+  Double_t nBkg = 0.0;
+  if (usePol2) {
+    TF1* fBkg = new TF1(fname + "_bkg", "pol2", fitMin, fitMax);
+    fBkg->SetParameters(f->GetParameter(3), f->GetParameter(4), f->GetParameter(5));
+    nBkg = fBkg->Integral(sigMin, sigMax);
+    out.polA = f->GetParameter(3);
+    out.polB = f->GetParameter(4);
+    out.polC = f->GetParameter(5);
+    delete fBkg;
+  } else {
+    nBkg = f->GetParameter(3) * (sigMax - sigMin);
+    out.polA = f->GetParameter(3);
+    out.polB = 0.0;
+    out.polC = 0.0;
+  }
+  delete fGaus;
+  if (nSig <= 0.0 || (nSig + nBkg) <= 0.0) {
+    delete f;
+    return kFALSE;
+  }
+  out.ok = kTRUE;
+  out.nSig = nSig;
+  out.nBkg = nBkg;
+  out.purity = nSig / (nSig + nBkg);
+  out.amp = f->GetParameter(0);
+  out.mean = f->GetParameter(1);
+  out.sigma = f->GetParameter(2);
+  out.usedPol2 = usePol2;
+  const Double_t eA = f->GetParError(0);
+  const Double_t eS = f->GetParError(2);
+  out.errNSig = nSig * TMath::Sqrt(TMath::Power(eA / (f->GetParameter(0) + 1e-12), 2) +
+                                   TMath::Power(eS / (f->GetParameter(2) + 1e-12), 2));
+  out.errPurity = out.purity * TMath::Sqrt(TMath::Power(eA / (f->GetParameter(0) + 1e-12), 2) +
+                                           TMath::Power(eS / (f->GetParameter(2) + 1e-12), 2));
+  if (out.errPurity > 0.5) out.errPurity = 0.5;
+  delete f;
+  return kTRUE;
+}
+
+static Bool_t fitPurityGausPol2OrConst(TH1* hMass, Double_t fitMin, Double_t fitMax, Double_t sigMin, Double_t sigMax,
+                                       Double_t sigmaMin, Double_t sigmaMax, Bool_t preferPol2, KstarMassFitCfFitResult& out) {
+  out = KstarMassFitCfFitResult();
+  if (!hMass) return kFALSE;
+  Int_t binFitLo = hMass->GetXaxis()->FindBin(fitMin + 1e-9);
+  Int_t binFitHi = hMass->GetXaxis()->FindBin(fitMax - 1e-9);
+  if (hMass->Integral(binFitLo, binFitHi) <= 0.0) return kFALSE;
+
+  if (preferPol2 && fitPurityOneModel(hMass, fitMin, fitMax, sigMin, sigMax, sigmaMin, sigmaMax, kTRUE, out))
+    return kTRUE;
+  if (fitPurityOneModel(hMass, fitMin, fitMax, sigMin, sigMax, sigmaMin, sigmaMax, kFALSE, out)) return kTRUE;
+  if (!preferPol2 && fitPurityOneModel(hMass, fitMin, fitMax, sigMin, sigMax, sigmaMin, sigmaMax, kTRUE, out))
+    return kTRUE;
+  return kFALSE;
+}
+
+// Pure gaussian (no polynomial / const background). Used for S = F-αB where residual BG ~ 0.
+static Bool_t fitPurityGausOnly(TH1* hMass, Double_t fitMin, Double_t fitMax, Double_t sigMin, Double_t sigMax,
+                                Double_t sigmaMin, Double_t sigmaMax, KstarMassFitCfFitResult& out) {
+  out = KstarMassFitCfFitResult();
+  if (!hMass) return kFALSE;
+  Int_t binFitLo = hMass->GetXaxis()->FindBin(fitMin + 1e-9);
+  Int_t binFitHi = hMass->GetXaxis()->FindBin(fitMax - 1e-9);
+  if (hMass->Integral(binFitLo, binFitHi) <= 0.0) return kFALSE;
+
+  TString fname = Form("fm3g_%lx", (unsigned long)hMass);
+  TF1* f = new TF1(fname + "_g", "gaus", fitMin, fitMax);
+  Double_t peak = hMass->GetMaximum();
+  Int_t maxBin = hMass->GetMaximumBin();
+  f->SetParameter(0, peak > 0.0 ? peak : 1.0);
+  f->SetParameter(1, hMass->GetXaxis()->GetBinCenter(maxBin));
+  f->SetParameter(2, 0.006);
+  f->SetParLimits(2, sigmaMin, sigmaMax);
+  TFitResultPtr rfit = hMass->Fit(f, "RQS0");
+  const Int_t fitStat = (Int_t)rfit;
+  if (fitStat != 0 || rfit.Get() == 0) {
+    delete f;
+    return kFALSE;
+  }
+  Double_t nSig = f->Integral(sigMin, sigMax);
+  if (nSig <= 0.0) {
+    delete f;
+    return kFALSE;
+  }
+  out.ok = kTRUE;
+  out.nSig = nSig;
+  out.nBkg = 0.0;
+  out.purity = 1.0;
+  out.amp = f->GetParameter(0);
+  out.mean = f->GetParameter(1);
+  out.sigma = f->GetParameter(2);
+  out.polA = 0.0;
+  out.polB = 0.0;
+  out.polC = 0.0;
+  out.usedPol2 = kFALSE;
+  Bool_t usedCov = kFALSE;
+  if (rfit->CovMatrixStatus() > 0) {
+    TMatrixDSym cov = rfit->GetCovarianceMatrix();
+    Double_t pars[3] = {f->GetParameter(0), f->GetParameter(1), f->GetParameter(2)};
+    const Double_t errCov = f->IntegralError(sigMin, sigMax, pars, cov.GetMatrixArray());
+    if (TMath::Finite(errCov) && errCov >= 0.0) {
+      out.errNSig = errCov;
+      usedCov = kTRUE;
+    }
+  }
+  if (!usedCov) {
+    const Double_t eA = f->GetParError(0);
+    const Double_t eS = f->GetParError(2);
+    out.errNSig = nSig * TMath::Sqrt(TMath::Power(eA / (f->GetParameter(0) + 1e-12), 2) +
+                                     TMath::Power(eS / (f->GetParameter(2) + 1e-12), 2));
+  }
+  out.errPurity = 0.0;
+  delete f;
+  return kTRUE;
+}
+
+static void getKstarMassFitCfFitConfig(Double_t& fitMin, Double_t& fitMax, Double_t& sigmaMin, Double_t& sigmaMax,
+                                Double_t& purityMinK, Double_t& purityMaxK, Int_t& minEntries, Double_t& clampMin,
+                                Double_t& clampMax, Bool_t& preferPol2) {
+  fitMin = 0.99;
+  fitMax = 1.06;
+  sigmaMin = 0.002;
+  sigmaMax = 0.020;
+  purityMinK = 0.0;
+  purityMaxK = 0.65;
+  minEntries = 20;
+  clampMin = 0.05;
+  clampMax = 1.0;
+  preferPol2 = kTRUE;
+  if (!gConfigLoaded) return;
+  const FemtoConfig& fc = ConfigManager::GetInstance().GetFemtoConfig();
+  fitMin = fc.kstarMassFitCfFitMassMin;
+  fitMax = fc.kstarMassFitCfFitMassMax;
+  sigmaMin = fc.purityFitGaussSigmaMin;
+  sigmaMax = fc.purityFitGaussSigmaMax;
+  purityMinK = fc.purityMinKstar;
+  purityMaxK = fc.purityMaxKstar;
+  minEntries = fc.purityMinEntriesPerBin;
+  clampMin = fc.purityClampMin;
+  clampMax = fc.purityClampMax;
+  preferPol2 = (fc.purityDirectFitModel == "gaus_pol2");
+}
+
+struct DirectMassFitBinRecord {
+  Int_t iy;
+  Double_t kstar;
+  Double_t seIntegral;
+  Bool_t seOk;
+  Bool_t meOk;
+  KstarMassFitCfFitResult seFit;
+  KstarMassFitCfFitResult meFit;
+};
+
+// k* Rebin factor to reach a target bin width from the histogram's native width.
+// targetWidth <= 0 means no rebin (factor 1).
+static Int_t kmfRebinFactorForWidth(Double_t binWidth, Double_t targetWidth) {
+  if (targetWidth <= 0.0 || binWidth <= 0.0) return 1;
+  Int_t f = (Int_t)TMath::Nint(targetWidth / binWidth);
+  if (f < 1) f = 1;
+  return f;
+}
+
+static void computeDirectMassFitCfGraphs(TFile* fin, const FemtoConfig::CfCentSlice& slice,
+                                       const std::string& channelBase, std::map<std::string, TGraphErrors*>& cfCache,
+                                       std::map<std::string, Double_t>& metaCache,
+                                       std::vector<DirectMassFitBinRecord>* binRecordsOut, Double_t kstarBinTarget = -1.0) {
+  if (kstarBinTarget < 0.0) kstarBinTarget = getKstarMassFitCfKstarBinTarget();
+  const std::string suf = kmfCacheSuffix(kstarBinTarget);
+  const std::string pTrueKey = cfSliceCacheKey(slice.id, std::string("method3_P_true_") + channelBase + suf);
+  const std::string pMixKey = cfSliceCacheKey(slice.id, std::string("method3_P_mix_") + channelBase + suf);
+  const std::string nSeKey = cfSliceCacheKey(slice.id, std::string("method3_Nsig_SE_") + channelBase + suf);
+  const std::string nMeKey = cfSliceCacheKey(slice.id, std::string("method3_Nsig_ME_") + channelBase + suf);
+  const std::string nSeBkgKey = cfSliceCacheKey(slice.id, std::string("method3_Nbkg_SE_") + channelBase + suf);
+  const std::string nMeBkgKey = cfSliceCacheKey(slice.id, std::string("method3_Nbkg_ME_") + channelBase + suf);
+  const std::string cfKey = cfSliceCacheKey(slice.id, std::string("CF_method3_") + channelBase + suf);
+
+  if (cfCache.find(cfKey) != cfCache.end()) {
+    if (binRecordsOut) binRecordsOut->clear();
+    return;
+  }
+
+  TH3* h3SE = (TH3*)fin->Get(phiMkkVsKstarWideSeKey(channelBase).c_str());
+  TH3* h3ME = (TH3*)fin->Get(phiMkkVsKstarWideMeKey(channelBase).c_str());
+  if (!h3SE || !h3ME) {
+    std::cout << "[checkHistAnaFemtoPhi] direct-mass-fit " << channelBase << " " << slice.id
+              << ": missing wide TH3 (needs Maker re-run with hPhiMKK_vs_Kstar*_wide)\n";
+    cfCache[cfKey] = 0;
+    cfCache[pTrueKey] = 0;
+    cfCache[pMixKey] = 0;
+    cfCache[nSeKey] = 0;
+    cfCache[nMeKey] = 0;
+    return;
+  }
+
+  TH2* h2SE = projectMkkVsKstarForSlice(h3SE, slice.cent9Min, slice.cent9Max, "_m3_mkkse");
+  TH2* h2ME = projectMkkVsKstarForSlice(h3ME, slice.cent9Min, slice.cent9Max, "_m3_mkkme");
+  if (!h2SE || !h2ME) {
+    delete h2SE;
+    delete h2ME;
+    cfCache[cfKey] = 0;
+    return;
+  }
+
+  const Int_t kRebin = kmfRebinFactorForWidth(h2SE->GetYaxis()->GetBinWidth(1), kstarBinTarget);
+  if (kRebin > 1) {
+    h2SE = (TH2*)h2SE->RebinY(kRebin);
+    h2ME = (TH2*)h2ME->RebinY(kRebin);
+  }
+
+  Double_t fitMin = 0.99, fitMax = 1.06, sigmaMin = 0.002, sigmaMax = 0.020;
+  Double_t purityMinK = 0.0, purityMaxK = 0.65, clampMin = 0.05, clampMax = 1.0;
+  Int_t minEntries = 20;
+  Bool_t preferPol2 = kTRUE;
+  getKstarMassFitCfFitConfig(fitMin, fitMax, sigmaMin, sigmaMax, purityMinK, purityMaxK, minEntries, clampMin, clampMax,
+                      preferPol2);
+
+  const std::string chSig = channelSignal(channelBase);
+  Double_t sigMin = 1.012, sigMax = 1.026;
+  getChannelSignalMassWindow(chSig, sigMin, sigMax);
+
+  std::vector<Double_t> kx, pyT, eyT, pyM, eyM, nSe, eSe, nMe, eMe, cfx, cfy, cfe;
+  std::vector<Double_t> nSeBkg, nMeBkg;
+  std::vector<DirectMassFitBinRecord> records;
+  Int_t nFail = 0;
+
+  for (Int_t iy = 1; iy <= h2SE->GetNbinsY(); ++iy) {
+    const Double_t kstar = h2SE->GetYaxis()->GetBinCenter(iy);
+    if (kstar < purityMinK || kstar > purityMaxK) continue;
+
+    TH1* hSE_ib = h2SE->ProjectionX(Form("_m3_se_rb%d_%d", kRebin, iy), iy, iy);
+    TH1* hME_ib = h2ME->ProjectionX(Form("_m3_me_rb%d_%d", kRebin, iy), iy, iy);
+    if (!hSE_ib || !hME_ib) {
+      delete hSE_ib;
+      delete hME_ib;
+      continue;
+    }
+    hSE_ib->SetDirectory(0);
+    hME_ib->SetDirectory(0);
+
+    DirectMassFitBinRecord rec;
+    rec.iy = iy;
+    rec.kstar = kstar;
+    rec.seIntegral = hSE_ib->Integral();
+    rec.seOk = kFALSE;
+    rec.meOk = kFALSE;
+
+    if (hSE_ib->GetEntries() < minEntries) {
+      ++nFail;
+      delete hSE_ib;
+      delete hME_ib;
+      records.push_back(rec);
+      continue;
+    }
+
+    KstarMassFitCfFitResult seFit, meFit;
+    Bool_t okSE = fitPurityGausPol2OrConst(hSE_ib, fitMin, fitMax, sigMin, sigMax, sigmaMin, sigmaMax, preferPol2,
+                                           seFit);
+    Bool_t okME = fitPurityGausPol2OrConst(hME_ib, fitMin, fitMax, sigMin, sigMax, sigmaMin, sigmaMax, preferPol2,
+                                           meFit);
+    delete hSE_ib;
+    delete hME_ib;
+
+    rec.seOk = okSE;
+    rec.meOk = okME;
+    rec.seFit = seFit;
+    rec.meFit = meFit;
+    records.push_back(rec);
+
+    if (!okSE || !okME || seFit.nSig <= 0.0 || meFit.nSig <= 0.0) {
+      ++nFail;
+      continue;
+    }
+
+    Double_t pT = seFit.purity;
+    Double_t pM = meFit.purity;
+    if (pT < clampMin) pT = clampMin;
+    if (pT > clampMax) pT = clampMax;
+    if (pM < clampMin) pM = clampMin;
+    if (pM > clampMax) pM = clampMax;
+
+    kx.push_back(kstar);
+    pyT.push_back(pT);
+    eyT.push_back(seFit.errPurity);
+    pyM.push_back(pM);
+    eyM.push_back(meFit.errPurity);
+    nSe.push_back(seFit.nSig);
+    eSe.push_back(seFit.errNSig);
+    nMe.push_back(meFit.nSig);
+    eMe.push_back(meFit.errNSig);
+    nSeBkg.push_back(seFit.nBkg);
+    nMeBkg.push_back(meFit.nBkg);
+
+    const Double_t cf = seFit.nSig / meFit.nSig;
+    const Double_t ecf =
+        cf * TMath::Sqrt(TMath::Power(seFit.errNSig / (seFit.nSig + 1e-12), 2) +
+                         TMath::Power(meFit.errNSig / (meFit.nSig + 1e-12), 2));
+    cfx.push_back(kstar);
+    cfy.push_back(cf);
+    cfe.push_back(ecf);
+  }
+
+  delete h2SE;
+  delete h2ME;
+
+  std::cout << "[checkHistAnaFemtoPhi] direct-mass-fit " << channelBase << " " << slice.id << ": okBins=" << cfx.size()
+            << " fail/skip=" << nFail << " kRebin=" << kRebin
+            << " dkTarget=" << kstarBinTarget << "\n";
+
+  if (kx.empty()) {
+    cfCache[cfKey] = 0;
+    cfCache[pTrueKey] = 0;
+    cfCache[pMixKey] = 0;
+    cfCache[nSeKey] = 0;
+    cfCache[nMeKey] = 0;
+    cfCache[cfSliceCacheKey(slice.id, std::string("CF_method3_norm_") + channelBase + suf)] = 0;
+  } else {
+    TGraphErrors* gPT = new TGraphErrors((Int_t)kx.size(), &kx[0], &pyT[0], 0, &eyT[0]);
+    gPT->SetTitle(Form("P_{true}(k^{*}) dmf %s %s", channelBase.c_str(), slice.id.c_str()));
+    gPT->SetMarkerStyle(20);
+    gPT->SetMarkerColor(kBlack);
+    cfCache[pTrueKey] = gPT;
+
+    TGraphErrors* gPM = new TGraphErrors((Int_t)kx.size(), &kx[0], &pyM[0], 0, &eyM[0]);
+    gPM->SetTitle(Form("P_{mix}(k^{*}) dmf %s %s", channelBase.c_str(), slice.id.c_str()));
+    gPM->SetMarkerStyle(21);
+    gPM->SetMarkerColor(kRed);
+    cfCache[pMixKey] = gPM;
+
+    TGraphErrors* gNSE = new TGraphErrors((Int_t)kx.size(), &kx[0], &nSe[0], 0, &eSe[0]);
+    gNSE->SetTitle(Form("N_{sig}^{SE}(k^{*}) dmf %s %s", channelBase.c_str(), slice.id.c_str()));
+    gNSE->SetMarkerStyle(20);
+    cfCache[nSeKey] = gNSE;
+
+    TGraphErrors* gNME = new TGraphErrors((Int_t)kx.size(), &kx[0], &nMe[0], 0, &eMe[0]);
+    gNME->SetTitle(Form("N_{sig}^{ME}(k^{*}) dmf %s %s", channelBase.c_str(), slice.id.c_str()));
+    gNME->SetMarkerStyle(21);
+    gNME->SetMarkerColor(kRed);
+    cfCache[nMeKey] = gNME;
+
+    TGraphErrors* gNSEb = new TGraphErrors((Int_t)kx.size(), &kx[0], &nSeBkg[0], 0, 0);
+    gNSEb->SetTitle(Form("N_{bkg}^{SE}(k^{*}) dmf %s %s", channelBase.c_str(), slice.id.c_str()));
+    gNSEb->SetMarkerStyle(24);
+    gNSEb->SetMarkerColor(kBlack);
+    cfCache[nSeBkgKey] = gNSEb;
+
+    TGraphErrors* gNMEb = new TGraphErrors((Int_t)kx.size(), &kx[0], &nMeBkg[0], 0, 0);
+    gNMEb->SetTitle(Form("N_{bkg}^{ME}(k^{*}) dmf %s %s", channelBase.c_str(), slice.id.c_str()));
+    gNMEb->SetMarkerStyle(25);
+    gNMEb->SetMarkerColor(kRed);
+    cfCache[nMeBkgKey] = gNMEb;
+
+    TGraphErrors* gCF = new TGraphErrors((Int_t)cfx.size(), &cfx[0], &cfy[0], 0, &cfe[0]);
+    gCF->SetTitle(Form("CF_{direct}(k^{*}) dmf %s %s", channelBase.c_str(), slice.id.c_str()));
+    gCF->SetMarkerStyle(20);
+    gCF->SetMarkerColor(kBlue + 1);
+    cfCache[cfKey] = gCF;
+
+    // High-k* normalized CF (same window as other CFs); raw CF_direct kept above.
+    const std::string cfNormKey =
+        cfSliceCacheKey(slice.id, std::string("CF_method3_norm_") + channelBase + suf);
+    const std::string chSig = channelSignal(channelBase);
+    const Double_t nQMin = channelNormQMin(chSig);
+    const Double_t nQMax = channelNormQMax(chSig);
+    Double_t sumC = 0.0;
+    Int_t nNorm = 0;
+    for (size_t i = 0; i < cfx.size(); ++i) {
+      if (cfx[i] < nQMin || cfx[i] > nQMax) continue;
+      sumC += cfy[i];
+      ++nNorm;
+    }
+    if (nNorm > 0 && sumC > 0.0) {
+      const Double_t scale = (Double_t)nNorm / sumC;
+      std::vector<Double_t> ny, ne;
+      ny.reserve(cfy.size());
+      ne.reserve(cfe.size());
+      for (size_t i = 0; i < cfy.size(); ++i) {
+        ny.push_back(cfy[i] * scale);
+        ne.push_back(cfe[i] * scale);
+      }
+      TGraphErrors* gCFn = new TGraphErrors((Int_t)cfx.size(), &cfx[0], &ny[0], 0, &ne[0]);
+      gCFn->SetTitle(Form("CF_{direct}^{norm}(k^{*}) dmf %s %s", channelBase.c_str(), slice.id.c_str()));
+      gCFn->SetMarkerStyle(21);
+      gCFn->SetMarkerColor(kAzure + 2);
+      cfCache[cfNormKey] = gCFn;
+      metaCache[cfSliceCacheKey(slice.id, std::string("method3_normScale_") + channelBase + suf)] = scale;
+    } else {
+      cfCache[cfNormKey] = 0;
+    }
+  }
+
+  metaCache[cfSliceCacheKey(slice.id, std::string("method3_nFail_") + channelBase + suf)] = (Double_t)nFail;
+  metaCache[cfSliceCacheKey(slice.id, std::string("method3_nOk_") + channelBase + suf)] = (Double_t)cfx.size();
+  Int_t iyHigh = -1, iyLow = -1;
+  Double_t maxInt = -1.0, minInt = 1e300;
+  Double_t kHigh = -1.0, kLow = -1.0;
+  for (size_t ir = 0; ir < records.size(); ++ir) {
+    if (!records[ir].seOk || !records[ir].meOk) continue;
+    const Double_t integ = records[ir].seIntegral;
+    if (integ > maxInt || (TMath::Abs(integ - maxInt) < 1e-9 && records[ir].kstar > kHigh)) {
+      maxInt = integ;
+      iyHigh = records[ir].iy;
+      kHigh = records[ir].kstar;
+    }
+    if (integ < minInt || (TMath::Abs(integ - minInt) < 1e-9 && records[ir].kstar < kLow)) {
+      minInt = integ;
+      iyLow = records[ir].iy;
+      kLow = records[ir].kstar;
+    }
+  }
+  metaCache[cfSliceCacheKey(slice.id, std::string("method3_iy_high_") + channelBase + suf)] = (Double_t)iyHigh;
+  metaCache[cfSliceCacheKey(slice.id, std::string("method3_iy_low_") + channelBase + suf)] = (Double_t)iyLow;
+  metaCache[cfSliceCacheKey(slice.id, std::string("method3_k_high_") + channelBase + suf)] = kHigh;
+  metaCache[cfSliceCacheKey(slice.id, std::string("method3_k_low_") + channelBase + suf)] = kLow;
+
+  if (binRecordsOut) *binRecordsOut = records;
+}
+
+// Legacy direct mass-fit CF vs Kubo-bkg genuine CF (closure).
+static void drawDirectMassFitKuboClosureForBase(TCanvas* c1, TFile* fin, const std::string& base, const TString& pdfName,
+                                          std::map<std::string, TGraphErrors*>& cfCache,
+                                          std::map<std::string, Double_t>& metaCache) {
+  if (!c1 || !isLegacyCfPagesEnabled() || !isKuboTripletEnabled()) return;
+
+  const FemtoConfig::CfCentSlice* slicePtr = 0;
+  const std::vector<FemtoConfig::CfCentSlice> slices = getCfCentSliceList();
+  for (size_t is = 0; is < slices.size(); ++is) {
+    if (slices[is].id == "pct_0_10" || slices[is].id == "pct_0_20") {
+      slicePtr = &slices[is];
+      break;
+    }
+  }
+  if (!slicePtr && !slices.empty()) slicePtr = &slices[0];
+  if (!slicePtr) return;
+
+  const Double_t dk = getKstarMassFitCfKstarBinTarget();
+  const std::string suf = kmfCacheSuffix(dk);
+  computeDirectMassFitCfGraphs(fin, *slicePtr, base, cfCache, metaCache, 0, dk);
+  const std::string cfNormKey =
+      cfSliceCacheKey(slicePtr->id, std::string("CF_method3_norm_") + base + suf);
+  const std::string pTrueKey =
+      cfSliceCacheKey(slicePtr->id, std::string("method3_P_true_") + base + suf);
+  TGraphErrors* gM3 = cfCache.count(cfNormKey) ? cfCache[cfNormKey] : 0;
+  TGraphErrors* gP = cfCache.count(pTrueKey) ? cfCache[pTrueKey] : 0;
+
+  const std::string chSig = channelSignal(base);
+  const Double_t nQMin = channelNormQMin(chSig);
+  const Double_t nQMax = channelNormQMax(chSig);
+  TGraphErrors* gOld = 0;
+  TGraphErrors* gKubo = 0;
+  computeKuboBkgGraphs(fin, base, nQMin, nQMax, &gOld, &gKubo);
+  if (!gM3 || !gKubo || !gP) {
+    c1->Clear();
+    c1->cd(0);
+    TLatex* lat = new TLatex();
+    lat->SetNDC(kTRUE);
+    lat->SetTextSize(0.035);
+    lat->DrawLatex(0.12, 0.55, Form("direct-mass-fit/Kubo closure %s: missing CF_norm, P_true, or Kubo bkg", base.c_str()));
+    c1->Print(pdfName);
+    return;
+  }
+
+  // C_meas from signal-channel CF (same selection); prefer direct-mass-fit norm as primary meas for closure.
+  TGraphErrors* gGenKubo =
+      computeGenuineFromParts(gM3, gKubo, gP, Form("C_{gen}^{Kubo} from dmf %s", base.c_str()));
+  cfCache[std::string("closure:CF_kubo_from_m3_") + base] = gGenKubo;
+
+  c1->Clear();
+  c1->Divide(2, 1);
+  c1->cd(1);
+  drawCfGraphOverlay(gM3, gGenKubo, "CF_{direct}^{norm} (dmf)", "C_{gen} (Kubo bkg)");
+  if (gPad) {
+    TLatex* lat = new TLatex();
+    lat->SetNDC(kTRUE);
+    lat->SetTextSize(0.03);
+    lat->DrawLatex(0.02, 0.98, Form("Closure %s [%s]: direct-mass-fit vs Kubo-weighted genuine", base.c_str(),
+                                    slicePtr->id.c_str()));
+  }
+  c1->cd(2);
+  if (gM3 && gGenKubo) {
+    std::vector<Double_t> rx, ry;
+    for (Int_t i = 0; i < gGenKubo->GetN(); ++i) {
+      const Double_t k = gGenKubo->GetX()[i];
+      Double_t eo = 0.0;
+      const Double_t co = interpGraphY(gM3, k, &eo);
+      if (co <= 0.0) continue;
+      rx.push_back(k);
+      ry.push_back(gGenKubo->GetY()[i] / co);
+    }
+    if (!rx.empty()) {
+      TGraph* gRatio = new TGraph((Int_t)rx.size(), &rx[0], &ry[0]);
+      gRatio->SetTitle(Form("C_{gen}^{Kubo}/CF_{direct}^{norm} %s;k^{*} [GeV/c];ratio", base.c_str()));
+      gRatio->SetMarkerStyle(20);
+      gRatio->Draw("AP");
+      TH1* hF = gRatio->GetHistogram();
+      if (hF) {
+        hF->GetXaxis()->SetRangeUser(kCfKstarXMin, kCfKstarXMax);
+        hF->GetYaxis()->SetRangeUser(0.7, 1.3);
+      }
+      TLine* one = new TLine(kCfKstarXMin, 1.0, kCfKstarXMax, 1.0);
+      one->SetLineStyle(2);
+      one->Draw("SAME");
+    }
+  }
+  c1->Print(pdfName);
+
+  // Optional: show full-mass Kubo TH3 presence (schema QA).
+  c1->Clear();
+  c1->Divide(2, 2);
+  const char* keys3[] = {"hKuboMKK_vs_KstarSEKp_", "hKuboMKK_vs_KstarSEKm_", "hKuboMKK_vs_KstarMix_",
+                         "hKuboMKK_vs_KstarKK_"};
+  const char* labs[] = {"SEKp full", "SEKm full", "Mix D full", "KK full"};
+  for (Int_t ip = 0; ip < 4; ++ip) {
+    c1->cd(ip + 1);
+    TH3* h3 = (TH3*)fin->Get((std::string(keys3[ip]) + base).c_str());
+    TLatex* lat = new TLatex();
+    lat->SetNDC(kTRUE);
+    lat->SetTextSize(0.04);
+    if (!h3) {
+      lat->DrawLatex(0.15, 0.5, Form("%s: MISSING (needs re-run)", labs[ip]));
+    } else {
+      lat->DrawLatex(0.12, 0.55, Form("%s", labs[ip]));
+      lat->DrawLatex(0.12, 0.45, Form("entries=%.0f", h3->GetEntries()));
+      lat->DrawLatex(0.12, 0.35, "TH3 M_{KK}#times k^{*}#times cent (full mass)");
+    }
+  }
+  c1->cd(0);
+  {
+    TLatex* lat = new TLatex();
+    lat->SetNDC(kTRUE);
+    lat->SetTextSize(0.03);
+    lat->DrawLatex(0.02, 0.97, Form("Kubo full-mass schema QA %s (kuboStoreFullMass)", base.c_str()));
+  }
+  c1->Print(pdfName);
+}
+
+static void populateDirectMassFitCachesForBase(TFile* fin, const std::string& channelBase,
+                                         std::map<std::string, TGraphErrors*>& cfCache,
+                                         std::map<std::string, Double_t>& metaCache) {
+  const std::vector<FemtoConfig::CfCentSlice> slices = getCfCentSliceList();
+  for (size_t is = 0; is < slices.size(); ++is) {
+    computeDirectMassFitCfGraphs(fin, slices[is], channelBase, cfCache, metaCache, 0);
+  }
+}
+
+static void populateDirectMassFitCaches(TFile* fin, std::map<std::string, TGraphErrors*>& cfCache,
+                                  std::map<std::string, Double_t>& metaCache) {
+  if (!isLegacyCfPagesEnabled()) return;
+  for (Int_t ib = 0; kChannelBases[ib]; ++ib) {
+    populateDirectMassFitCachesForBase(fin, std::string(kChannelBases[ib]), cfCache, metaCache);
+  }
+}
+
+static void drawDirectMassFitPanel(TFile* fin, const FemtoConfig::CfCentSlice& slice, const std::string& channelBase,
+                                    Double_t kstarVal, Bool_t isSE, std::vector<TH1*>& keepAlive) {
+  if (kstarVal < 0.0) {
+    TLatex* lat = new TLatex();
+    lat->SetNDC(kTRUE);
+    lat->SetTextSize(0.04);
+    lat->DrawLatex(0.15, 0.5, "insufficient k* bins for exemplar");
+    return;
+  }
+  TH3* h3 = (TH3*)fin->Get(isSE ? phiMkkVsKstarWideSeKey(channelBase).c_str()
+                                : phiMkkVsKstarWideMeKey(channelBase).c_str());
+  if (!h3) {
+    TLatex* lat = new TLatex();
+    lat->SetNDC(kTRUE);
+    lat->SetTextSize(0.035);
+    lat->DrawLatex(0.12, 0.5, "missing wide TH3");
+    return;
+  }
+  TH2* h2 = projectMkkVsKstarForSlice(h3, slice.cent9Min, slice.cent9Max, isSE ? "_m3ex_se" : "_m3ex_me");
+  if (!h2) return;
+  const Int_t kRebin = kmfRebinFactorForWidth(h2->GetYaxis()->GetBinWidth(1), getKstarMassFitCfKstarBinTarget());
+  if (kRebin > 1) h2 = (TH2*)h2->RebinY(kRebin);
+  const Int_t iy = h2->GetYaxis()->FindBin(kstarVal);
+  if (iy < 1 || iy > h2->GetNbinsY()) {
+    delete h2;
+    TLatex* lat = new TLatex();
+    lat->SetNDC(kTRUE);
+    lat->SetTextSize(0.04);
+    lat->DrawLatex(0.15, 0.5, "k* out of range for exemplar");
+    return;
+  }
+  TH1* h1 = h2->ProjectionX(Form("_m3ex_x_%s_%d_%d", channelBase.c_str(), iy, isSE ? 1 : 0), iy, iy);
+  delete h2;
+  if (!h1) return;
+  h1->SetDirectory(0);
+  keepAlive.push_back(h1);
+
+  Double_t fitMin = 0.99, fitMax = 1.06, sigmaMin = 0.002, sigmaMax = 0.020;
+  Double_t purityMinK = 0.0, purityMaxK = 0.65, clampMin = 0.05, clampMax = 1.0;
+  Int_t minEntries = 20;
+  Bool_t preferPol2 = kTRUE;
+  getKstarMassFitCfFitConfig(fitMin, fitMax, sigmaMin, sigmaMax, purityMinK, purityMaxK, minEntries, clampMin, clampMax,
+                      preferPol2);
+  const std::string chSig = channelSignal(channelBase);
+  Double_t sigMin = 1.012, sigMax = 1.026;
+  getChannelSignalMassWindow(chSig, sigMin, sigMax);
+
+  KstarMassFitCfFitResult fr;
+  Bool_t ok = fitPurityGausPol2OrConst(h1, fitMin, fitMax, sigMin, sigMax, sigmaMin, sigmaMax, preferPol2, fr);
+
+  h1->SetLineColor(kBlack);
+  h1->SetTitle(Form("%s %s k*=%.3f;M_{KK} [GeV/c^{2}];Counts", isSE ? "SE" : "ME", channelBase.c_str(), kstarVal));
+  h1->GetXaxis()->SetRangeUser(fitMin - 0.01, fitMax + 0.01);
+  h1->Draw("HIST");
+
+  if (ok) {
+    TF1* fDraw = 0;
+    if (fr.usedPol2) {
+      fDraw = new TF1(Form("_m3draw_%lx", (unsigned long)h1), "gaus(0)+pol2(3)", fitMin, fitMax);
+      fDraw->SetParameters(fr.amp, fr.mean, fr.sigma, fr.polA, fr.polB, fr.polC);
+    } else {
+      fDraw = new TF1(Form("_m3draw_%lx", (unsigned long)h1), "gaus(0)+[3]", fitMin, fitMax);
+      fDraw->SetParameters(fr.amp, fr.mean, fr.sigma, fr.polA);
+    }
+    fDraw->SetLineColor(kRed);
+    fDraw->SetLineWidth(2);
+    fDraw->Draw("SAME");
+    TF1* fG = new TF1(Form("_m3g_%lx", (unsigned long)h1), "gaus", fitMin, fitMax);
+    fG->SetParameters(fr.amp, fr.mean, fr.sigma);
+    fG->SetLineColor(kBlue);
+    fG->SetLineStyle(2);
+    fG->Draw("SAME");
+  }
+
+  if (gPad) {
+    Double_t ylo = gPad->GetUymin();
+    Double_t yhi = gPad->GetUymax();
+    TLine* l1 = new TLine(sigMin, ylo, sigMin, yhi);
+    l1->SetLineColor(kGreen + 2);
+    l1->SetLineStyle(2);
+    l1->Draw("same");
+    TLine* l2 = new TLine(sigMax, ylo, sigMax, yhi);
+    l2->SetLineColor(kGreen + 2);
+    l2->SetLineStyle(2);
+    l2->Draw("same");
+    TLine* f1 = new TLine(fitMin, ylo, fitMin, yhi);
+    f1->SetLineColor(kGray + 1);
+    f1->SetLineStyle(3);
+    f1->Draw("same");
+    TLine* f2 = new TLine(fitMax, ylo, fitMax, yhi);
+    f2->SetLineColor(kGray + 1);
+    f2->SetLineStyle(3);
+    f2->Draw("same");
+
+    TLatex* lat = new TLatex();
+    lat->SetNDC(kTRUE);
+    lat->SetTextSize(0.032);
+    if (ok) {
+      lat->DrawLatex(0.14, 0.84, Form("k*=%.3f  N_{sig}=%.1f  P=%.3f %s", kstarVal, fr.nSig, fr.purity,
+                                      fr.usedPol2 ? "gaus+pol2" : "gaus+const"));
+    } else {
+      lat->DrawLatex(0.14, 0.84, Form("k*=%.3f  fit FAILED", kstarVal));
+    }
+  }
+}
+
+static void drawDirectMassFitGuidePage(TCanvas* canvas) {
+  if (!canvas) return;
+  canvas->Clear();
+  canvas->cd(1);
+  gPad->SetMargin(0.08, 0.05, 0.05, 0.05);
+
+  TLatex* title = new TLatex();
+  title->SetNDC(kTRUE);
+  title->SetTextSize(0.038);
+  title->SetTextFont(62);
+  title->DrawLatex(0.06, 0.94, "Legacy: Direct mass-fit CF (no sideband CF)");
+
+  TLatex* t = new TLatex();
+  t->SetNDC(kTRUE);
+  t->SetTextSize(0.026);
+  Double_t y = 0.88;
+  const Double_t dy = 0.036;
+
+  t->DrawLatex(0.06, y, "Input: hPhiMKK_vs_KstarSE/ME_<base>_wide (full M_{KK}; Maker fill without mass-window cut).");
+  y -= dy;
+  t->DrawLatex(0.06, y, "Per k* bin: fit SE and ME M_{KK} separately with gaus+pol2 (fallback gaus+const).");
+  y -= dy;
+  t->DrawLatex(0.06, y, "N_{sig} = gaus integral in channel signal window; P = N_{sig}/(N_{sig}+N_{bkg}).");
+  y -= dy;
+  t->DrawLatex(0.06, y, "CF_{direct}(k*) = N_{sig}^{SE}(k*) / N_{sig}^{ME}(k*)   (no sideband CF).");
+  y -= dy * 1.2;
+
+  t->SetTextFont(62);
+  t->DrawLatex(0.06, y, "Not the same as:");
+  t->SetTextFont(42);
+  y -= dy;
+  t->DrawLatex(0.08, y, "Topic 3 C_{genuine}: SE-ME then gaus+const; uses ME-mass C_{bkg} formula.");
+  y -= dy;
+  t->DrawLatex(0.08, y, "CF-Sub (code method5): [CF_{sig}-(1-P)CF_{SB}]/P with sideband CF.");
+  y -= dy * 1.2;
+
+  t->SetTextFont(62);
+  t->DrawLatex(0.06, y, "k* definition:");
+  t->SetTextFont(42);
+  y -= dy;
+  t->DrawLatex(0.08, y, "k* = (1/2)|q*| in the pair CM frame (ComputeKStar; not single-particle rest frame).");
+  y -= dy * 1.2;
+
+  t->SetTextFont(62);
+  t->DrawLatex(0.06, y, "Page layout per slice x base:");
+  t->SetTextFont(42);
+  y -= dy;
+  t->DrawLatex(0.08, y, "p1: N_{sig}^{SE/ME}, P_{true}/P_{mix}, CF_{direct}");
+  y -= dy;
+  t->DrawLatex(0.08, y, "p2: exemplar mass fits at high-stat and low-stat k* (SE and ME).");
+  y -= dy * 1.2;
+  t->SetTextFont(62);
+  t->DrawLatex(0.06, y, "k* binning:");
+  t->SetTextFont(42);
+  y -= dy;
+  if (gConfigLoaded) {
+    const Double_t dk = ConfigManager::GetInstance().GetFemtoConfig().kstarMassFitCfKstarBinWidth;
+    if (dk > 0.0)
+      t->DrawLatex(0.08, y, Form("kstarMassFitCfKstarBinWidth = %.3f GeV/c (RebinY from native 0.010 GeV/c).", dk));
+    else
+      t->DrawLatex(0.08, y, "kstarMassFitCfKstarBinWidth <= 0: native *Kstar binning (0.010 GeV/c).");
+  } else {
+    t->DrawLatex(0.08, y, "kstarMassFitCfKstarBinWidth from maker YAML.");
+  }
+}
+
+static void drawDirectMassFitSlicePageForBase(TCanvas* canvas, TFile* fin, const FemtoConfig::CfCentSlice& slice,
+                                        const std::string& channelBase, std::map<std::string, TGraphErrors*>& cfCache,
+                                        std::map<std::string, Double_t>& metaCache) {
+  if (!canvas) return;
+  const Double_t kstarBinTarget = getKstarMassFitCfKstarBinTarget();
+  computeDirectMassFitCfGraphs(fin, slice, channelBase, cfCache, metaCache, 0, kstarBinTarget);
+  canvas->Clear();
+  canvas->Divide(2, 2);
+
+  const std::string suf = kmfCacheSuffix(kstarBinTarget);
+  const std::string nSeKey = cfSliceCacheKey(slice.id, std::string("method3_Nsig_SE_") + channelBase + suf);
+  const std::string nMeKey = cfSliceCacheKey(slice.id, std::string("method3_Nsig_ME_") + channelBase + suf);
+  const std::string pTrueKey = cfSliceCacheKey(slice.id, std::string("method3_P_true_") + channelBase + suf);
+  const std::string pMixKey = cfSliceCacheKey(slice.id, std::string("method3_P_mix_") + channelBase + suf);
+  const std::string cfKey = cfSliceCacheKey(slice.id, std::string("CF_method3_") + channelBase + suf);
+
+  TGraphErrors* gNSE = cfCache.count(nSeKey) ? cfCache[nSeKey] : 0;
+  TGraphErrors* gNME = cfCache.count(nMeKey) ? cfCache[nMeKey] : 0;
+  TGraphErrors* gPT = cfCache.count(pTrueKey) ? cfCache[pTrueKey] : 0;
+  TGraphErrors* gPM = cfCache.count(pMixKey) ? cfCache[pMixKey] : 0;
+  TGraphErrors* gCF = cfCache.count(cfKey) ? cfCache[cfKey] : 0;
+
+  canvas->cd(1);
+  if (gNSE || gNME) {
+    TGraphErrors* gFirst = gNSE ? gNSE : gNME;
+    gFirst->GetXaxis()->SetLimits(kCfKstarXMin, kCfKstarXMax);
+    gFirst->SetMarkerColor(kBlack);
+    gFirst->SetLineColor(kBlack);
+    gFirst->Draw("AP");
+    if (gNME && gNSE) {
+      gNME->SetMarkerColor(kRed);
+      gNME->SetLineColor(kRed);
+      gNME->SetMarkerStyle(21);
+      gNME->Draw("P SAME");
+    } else if (gNME) {
+      gNME->GetXaxis()->SetLimits(kCfKstarXMin, kCfKstarXMax);
+      gNME->Draw("AP");
+    }
+    if (gPad) {
+      TLegend* leg = new TLegend(0.55, 0.72, 0.88, 0.88);
+      leg->SetBorderSize(0);
+      leg->SetFillStyle(0);
+      if (gNSE) leg->AddEntry(gNSE, "N_{sig}^{SE}", "p");
+      if (gNME) leg->AddEntry(gNME, "N_{sig}^{ME}", "p");
+      leg->Draw();
+    }
+  } else {
+    TLatex* lat = new TLatex();
+    lat->SetNDC(kTRUE);
+    lat->DrawLatex(0.15, 0.5, "direct-mass-fit N_{sig}: missing wide TH3 or fit failed");
+  }
+
+  canvas->cd(2);
+  if (gPT || gPM) {
+    drawCfGraphOverlay(gPT, gPM, "P_{true}", "P_{mix}");
+    TH1* hF = (gPT ? gPT : gPM)->GetHistogram();
+    if (hF) hF->GetYaxis()->SetRangeUser(0.0, 1.05);
+  }
+
+  canvas->cd(3);
+  {
+    const std::string cfNormKey =
+        cfSliceCacheKey(slice.id, std::string("CF_method3_norm_") + channelBase + suf);
+    TGraphErrors* gCFn = cfCache.count(cfNormKey) ? cfCache[cfNormKey] : 0;
+    if (gCF || gCFn) {
+      if (gCF) {
+        gCF->GetXaxis()->SetLimits(kCfKstarXMin, kCfKstarXMax);
+        gCF->Draw("AP");
+        TH1* hF = gCF->GetHistogram();
+        if (hF) {
+          hF->GetXaxis()->SetRangeUser(kCfKstarXMin, kCfKstarXMax);
+          hF->GetYaxis()->SetRangeUser(kCfYMin, kCfYMax);
+        }
+      }
+      if (gCFn) {
+        gCFn->SetMarkerColor(kAzure + 2);
+        gCFn->SetLineColor(kAzure + 2);
+        gCFn->Draw(gCF ? "P SAME" : "AP");
+      }
+      TLegend* leg = new TLegend(0.55, 0.72, 0.88, 0.88);
+      leg->SetBorderSize(0);
+      leg->SetFillStyle(0);
+      if (gCF) leg->AddEntry(gCF, "CF_{direct} raw", "p");
+      if (gCFn) leg->AddEntry(gCFn, "CF_{direct}^{norm}", "p");
+      leg->Draw();
+    }
+  }
+
+  canvas->cd(4);
+  TLatex* note = new TLatex();
+  note->SetNDC(kTRUE);
+  note->SetTextSize(0.035);
+  note->DrawLatex(0.12, 0.75, Form("%s dmf %s", channelBase.c_str(), slice.id.c_str()));
+  note->DrawLatex(0.12, 0.65, Form("cent9 [%d,%d]", slice.cent9Min, slice.cent9Max));
+  note->DrawLatex(0.12, 0.55, "CF_{direct} = N_{sig}^{SE} / N_{sig}^{ME}");
+  note->DrawLatex(0.12, 0.45, "Needs hPhiMKK_vs_Kstar*_wide");
+  if (kstarBinTarget > 0.0)
+    note->DrawLatex(0.12, 0.38, Form("#Deltak* target = %.3f GeV/c", kstarBinTarget));
+  Double_t kH = -1.0, kL = -1.0;
+  if (metaCache.count(cfSliceCacheKey(slice.id, std::string("method3_k_high_") + channelBase + suf)))
+    kH = metaCache[cfSliceCacheKey(slice.id, std::string("method3_k_high_") + channelBase + suf)];
+  if (metaCache.count(cfSliceCacheKey(slice.id, std::string("method3_k_low_") + channelBase + suf)))
+    kL = metaCache[cfSliceCacheKey(slice.id, std::string("method3_k_low_") + channelBase + suf)];
+  note->DrawLatex(0.12, 0.30, Form("exemplar k* high=%.3f  low=%.3f", kH, kL));
+}
+
+static void drawDirectMassFitExemplarPageForBase(TCanvas* canvas, TFile* fin, const FemtoConfig::CfCentSlice& slice,
+                                              const std::string& channelBase,
+                                              std::map<std::string, Double_t>& metaCache,
+                                              std::vector<TH1*>& keepAlive) {
+  if (!canvas) return;
+  canvas->Clear();
+  canvas->Divide(2, 2);
+
+  Double_t kHigh = -1.0, kLow = -1.0;
+  const std::string suf = kmfCacheSuffix(getKstarMassFitCfKstarBinTarget());
+  const std::string kh = cfSliceCacheKey(slice.id, std::string("method3_k_high_") + channelBase + suf);
+  const std::string kl = cfSliceCacheKey(slice.id, std::string("method3_k_low_") + channelBase + suf);
+  if (metaCache.count(kh)) kHigh = metaCache[kh];
+  if (metaCache.count(kl)) kLow = metaCache[kl];
+
+  canvas->cd(1);
+  drawDirectMassFitPanel(fin, slice, channelBase, kHigh, kTRUE, keepAlive);
+  canvas->cd(2);
+  drawDirectMassFitPanel(fin, slice, channelBase, kHigh, kFALSE, keepAlive);
+  canvas->cd(3);
+  drawDirectMassFitPanel(fin, slice, channelBase, kLow, kTRUE, keepAlive);
+  canvas->cd(4);
+  drawDirectMassFitPanel(fin, slice, channelBase, kLow, kFALSE, keepAlive);
+
+  if (gPad) {
+    canvas->cd(0);
+    TLatex* lat = new TLatex();
+    lat->SetNDC(kTRUE);
+    lat->SetTextSize(0.025);
+    lat->DrawLatex(0.02, 0.97,
+                   Form("%s direct-mass-fit exemplars %s (top=high-stat k*, bottom=low-stat k*)", channelBase.c_str(),
+                        slice.id.c_str()));
+  }
+}
+
+// Draw one already-projected M_KK slice with the legacy gaus+pol2/const fit into the
+// current (small) pad. Used by the all-k* overview PDF.
+static void drawMethod3MassHistCompact(TH1* h1, Double_t kstarVal, Bool_t isSE, Double_t fitMin, Double_t fitMax,
+                                       Double_t sigMin, Double_t sigMax, Double_t sigmaMin, Double_t sigmaMax,
+                                       Bool_t preferPol2) {
+  if (!h1) return;
+  if (gPad) gPad->SetMargin(0.16, 0.04, 0.14, 0.12);
+
+  KstarMassFitCfFitResult fr;
+  Bool_t ok = fitPurityGausPol2OrConst(h1, fitMin, fitMax, sigMin, sigMax, sigmaMin, sigmaMax, preferPol2, fr);
+
+  h1->SetLineColor(kBlack);
+  h1->SetStats(0);
+  h1->SetTitle(Form("%s k*=%.3f;M_{KK} [GeV/c^{2}];", isSE ? "SE" : "ME", kstarVal));
+  h1->GetXaxis()->SetRangeUser(fitMin - 0.01, fitMax + 0.01);
+  h1->GetXaxis()->SetLabelSize(0.07);
+  h1->GetYaxis()->SetLabelSize(0.07);
+  h1->GetXaxis()->SetTitleSize(0.07);
+  h1->GetXaxis()->SetTitleOffset(0.9);
+  h1->GetXaxis()->SetNdivisions(505);
+  h1->GetYaxis()->SetNdivisions(505);
+  h1->SetTitleSize(0.09);
+  h1->Draw("HIST");
+
+  if (ok) {
+    TF1* fDraw = 0;
+    if (fr.usedPol2) {
+      fDraw = new TF1(Form("_m3alldraw_%lx", (unsigned long)h1), "gaus(0)+pol2(3)", fitMin, fitMax);
+      fDraw->SetParameters(fr.amp, fr.mean, fr.sigma, fr.polA, fr.polB, fr.polC);
+    } else {
+      fDraw = new TF1(Form("_m3alldraw_%lx", (unsigned long)h1), "gaus(0)+[3]", fitMin, fitMax);
+      fDraw->SetParameters(fr.amp, fr.mean, fr.sigma, fr.polA);
+    }
+    fDraw->SetLineColor(kRed);
+    fDraw->SetLineWidth(2);
+    fDraw->Draw("SAME");
+    TF1* fG = new TF1(Form("_m3allg_%lx", (unsigned long)h1), "gaus", fitMin, fitMax);
+    fG->SetParameters(fr.amp, fr.mean, fr.sigma);
+    fG->SetLineColor(kBlue);
+    fG->SetLineStyle(2);
+    fG->Draw("SAME");
+  }
+
+  if (gPad) {
+    Double_t ylo = gPad->GetUymin();
+    Double_t yhi = gPad->GetUymax();
+    TLine* l1 = new TLine(sigMin, ylo, sigMin, yhi);
+    l1->SetLineColor(kGreen + 2);
+    l1->SetLineStyle(2);
+    l1->Draw("same");
+    TLine* l2 = new TLine(sigMax, ylo, sigMax, yhi);
+    l2->SetLineColor(kGreen + 2);
+    l2->SetLineStyle(2);
+    l2->Draw("same");
+
+    TLatex* lat = new TLatex();
+    lat->SetNDC(kTRUE);
+    lat->SetTextSize(0.075);
+    if (ok) {
+      lat->DrawLatex(0.18, 0.80, Form("N_{sig}=%.0f P=%.2f", fr.nSig, fr.purity));
+    } else {
+      lat->SetTextColor(kGray + 2);
+      lat->DrawLatex(0.18, 0.80, "fit --");
+    }
+  }
+}
+
+
+// Build S/B(k*) from cached N_sig and N_bkg graphs (identical x sampling). Returns 0 if unavailable.
+static TGraph* buildMethod3SignalToBkgGraph(TGraphErrors* gSig, TGraphErrors* gBkg, Color_t color, Style_t style) {
+  if (!gSig || !gBkg) return 0;
+  const Int_t n = gSig->GetN();
+  if (n <= 0 || gBkg->GetN() != n) return 0;
+  const Double_t* xs = gSig->GetX();
+  const Double_t* ys = gSig->GetY();
+  const Double_t* yb = gBkg->GetY();
+  std::vector<Double_t> vx, vy;
+  for (Int_t i = 0; i < n; ++i) {
+    if (yb[i] <= 0.0) continue;
+    vx.push_back(xs[i]);
+    vy.push_back(ys[i] / yb[i]);
+  }
+  if (vx.empty()) return 0;
+  TGraph* g = new TGraph((Int_t)vx.size(), &vx[0], &vy[0]);
+  g->SetMarkerStyle(style);
+  g->SetMarkerColor(color);
+  g->SetLineColor(color);
+  return g;
+}
+
+// Purity / yield diagnostics page inserted after each all-k* mass-fit page (same base x slice).
+// p1: P_true(k*) & P_mix(k*)   p2: N_sig^SE & N_sig^ME (log)
+// p3: S/B^SE & S/B^ME (log)    p4: CF_direct(k*) = N_sig^SE / N_sig^ME
+static void drawDirectMassFitPurityPageForBase(TCanvas* canvas, TFile* fin, const FemtoConfig::CfCentSlice& slice,
+                                         const std::string& channelBase,
+                                         std::map<std::string, TGraphErrors*>& cfCache,
+                                         std::map<std::string, Double_t>& metaCache, Double_t kstarBinTarget = -1.0) {
+  if (!canvas) return;
+  if (kstarBinTarget < 0.0) kstarBinTarget = getKstarMassFitCfKstarBinTarget();
+  computeDirectMassFitCfGraphs(fin, slice, channelBase, cfCache, metaCache, 0, kstarBinTarget);
+  canvas->Clear();
+  canvas->Divide(2, 2);
+
+  const std::string suf = kmfCacheSuffix(kstarBinTarget);
+  const std::string pTrueKey = cfSliceCacheKey(slice.id, std::string("method3_P_true_") + channelBase + suf);
+  const std::string pMixKey = cfSliceCacheKey(slice.id, std::string("method3_P_mix_") + channelBase + suf);
+  const std::string nSeKey = cfSliceCacheKey(slice.id, std::string("method3_Nsig_SE_") + channelBase + suf);
+  const std::string nMeKey = cfSliceCacheKey(slice.id, std::string("method3_Nsig_ME_") + channelBase + suf);
+  const std::string nSeBkgKey = cfSliceCacheKey(slice.id, std::string("method3_Nbkg_SE_") + channelBase + suf);
+  const std::string nMeBkgKey = cfSliceCacheKey(slice.id, std::string("method3_Nbkg_ME_") + channelBase + suf);
+  const std::string cfKey = cfSliceCacheKey(slice.id, std::string("CF_method3_") + channelBase + suf);
+
+  TGraphErrors* gPT = cfCache.count(pTrueKey) ? cfCache[pTrueKey] : 0;
+  TGraphErrors* gPM = cfCache.count(pMixKey) ? cfCache[pMixKey] : 0;
+  TGraphErrors* gNSE = cfCache.count(nSeKey) ? cfCache[nSeKey] : 0;
+  TGraphErrors* gNME = cfCache.count(nMeKey) ? cfCache[nMeKey] : 0;
+  TGraphErrors* gNSEb = cfCache.count(nSeBkgKey) ? cfCache[nSeBkgKey] : 0;
+  TGraphErrors* gNMEb = cfCache.count(nMeBkgKey) ? cfCache[nMeBkgKey] : 0;
+  TGraphErrors* gCF = cfCache.count(cfKey) ? cfCache[cfKey] : 0;
+
+  const Bool_t haveAny = (gPT || gPM || gNSE || gNME || gCF);
+
+  // p1: purity vs k*
+  canvas->cd(1);
+  if (gPT || gPM) {
+    TGraphErrors* gf = gPT ? gPT : gPM;
+    if (gPT) {
+      gPT->SetMarkerStyle(20);
+      gPT->SetMarkerColor(kBlack);
+      gPT->SetLineColor(kBlack);
+      gPT->GetXaxis()->SetLimits(kCfKstarXMin, kCfKstarXMax);
+      gPT->Draw("AP");
+    }
+    if (gPM) {
+      gPM->SetMarkerStyle(21);
+      gPM->SetMarkerColor(kRed);
+      gPM->SetLineColor(kRed);
+      if (!gPT) gPM->GetXaxis()->SetLimits(kCfKstarXMin, kCfKstarXMax);
+      gPM->Draw(gPT ? "P SAME" : "AP");
+    }
+    if (gf->GetHistogram()) {
+      gf->GetHistogram()->GetXaxis()->SetRangeUser(kCfKstarXMin, kCfKstarXMax);
+      gf->GetHistogram()->GetYaxis()->SetRangeUser(0.0, 1.05);
+      gf->GetHistogram()->SetTitle(Form("Purity(k*) %s %s;k* [GeV/c];P = N_{sig}/(N_{sig}+N_{bkg})",
+                                        channelBase.c_str(), slice.id.c_str()));
+    }
+    TLegend* leg = new TLegend(0.55, 0.20, 0.88, 0.38);
+    leg->SetBorderSize(0);
+    leg->SetFillStyle(0);
+    if (gPT) leg->AddEntry(gPT, "P_{true} (SE)", "p");
+    if (gPM) leg->AddEntry(gPM, "P_{mix} (ME)", "p");
+    leg->Draw();
+  } else {
+    TLatex* t = new TLatex();
+    t->SetNDC(kTRUE);
+    t->DrawLatex(0.15, 0.5, "purity: missing wide TH3 or no successful fits");
+  }
+
+  // p2: N_sig vs k* (log)
+  canvas->cd(2);
+  if (gNSE || gNME) {
+    gPad->SetLogy(1);
+    TGraphErrors* gf = gNSE ? gNSE : gNME;
+    if (gNSE) {
+      gNSE->SetMarkerStyle(20);
+      gNSE->SetMarkerColor(kBlack);
+      gNSE->SetLineColor(kBlack);
+      gNSE->GetXaxis()->SetLimits(kCfKstarXMin, kCfKstarXMax);
+      gNSE->Draw("AP");
+    }
+    if (gNME) {
+      gNME->SetMarkerStyle(21);
+      gNME->SetMarkerColor(kRed);
+      gNME->SetLineColor(kRed);
+      if (!gNSE) gNME->GetXaxis()->SetLimits(kCfKstarXMin, kCfKstarXMax);
+      gNME->Draw(gNSE ? "P SAME" : "AP");
+    }
+    if (gf->GetHistogram()) {
+      gf->GetHistogram()->GetXaxis()->SetRangeUser(kCfKstarXMin, kCfKstarXMax);
+      gf->GetHistogram()->SetTitle(Form("N_{sig}(k*) %s %s;k* [GeV/c];N_{sig} (gaus integral)",
+                                        channelBase.c_str(), slice.id.c_str()));
+    }
+    TLegend* leg = new TLegend(0.55, 0.72, 0.88, 0.88);
+    leg->SetBorderSize(0);
+    leg->SetFillStyle(0);
+    if (gNSE) leg->AddEntry(gNSE, "N_{sig}^{SE}", "p");
+    if (gNME) leg->AddEntry(gNME, "N_{sig}^{ME}", "p");
+    leg->Draw();
+  }
+
+  // p3: S/B vs k* (log)
+  canvas->cd(3);
+  {
+    TGraph* gSBse = buildMethod3SignalToBkgGraph(gNSE, gNSEb, kBlack, 20);
+    TGraph* gSBme = buildMethod3SignalToBkgGraph(gNME, gNMEb, kRed, 21);
+    if (gSBse || gSBme) {
+      gPad->SetLogy(1);
+      TGraph* gf = gSBse ? gSBse : gSBme;
+      if (gSBse) {
+        gSBse->GetXaxis()->SetLimits(kCfKstarXMin, kCfKstarXMax);
+        gSBse->Draw("AP");
+      }
+      if (gSBme) {
+        if (!gSBse) gSBme->GetXaxis()->SetLimits(kCfKstarXMin, kCfKstarXMax);
+        gSBme->Draw(gSBse ? "P SAME" : "AP");
+      }
+      if (gf->GetHistogram()) {
+        gf->GetHistogram()->GetXaxis()->SetRangeUser(kCfKstarXMin, kCfKstarXMax);
+        gf->GetHistogram()->SetTitle(Form("S/B(k*) %s %s;k* [GeV/c];N_{sig}/N_{bkg} in signal window",
+                                          channelBase.c_str(), slice.id.c_str()));
+      }
+      TLegend* leg = new TLegend(0.55, 0.72, 0.88, 0.88);
+      leg->SetBorderSize(0);
+      leg->SetFillStyle(0);
+      if (gSBse) leg->AddEntry(gSBse, "S/B^{SE}", "p");
+      if (gSBme) leg->AddEntry(gSBme, "S/B^{ME}", "p");
+      leg->Draw();
+    } else {
+      TLatex* t = new TLatex();
+      t->SetNDC(kTRUE);
+      t->DrawLatex(0.15, 0.5, "S/B: no background yields");
+    }
+  }
+
+  // p4: CF_direct vs k*
+  canvas->cd(4);
+  if (gCF) {
+    gCF->SetMarkerStyle(20);
+    gCF->SetMarkerColor(kBlue + 1);
+    gCF->SetLineColor(kBlue + 1);
+    gCF->GetXaxis()->SetLimits(kCfKstarXMin, kCfKstarXMax);
+    gCF->Draw("AP");
+    if (gCF->GetHistogram()) {
+      gCF->GetHistogram()->GetXaxis()->SetRangeUser(kCfKstarXMin, kCfKstarXMax);
+      gCF->GetHistogram()->GetYaxis()->SetRangeUser(kCfYMin, kCfYMax);
+      gCF->GetHistogram()->SetTitle(Form("CF_{direct}(k*) %s %s;k* [GeV/c];N_{sig}^{SE}/N_{sig}^{ME}",
+                                         channelBase.c_str(), slice.id.c_str()));
+    }
+    TLine* one = new TLine(kCfKstarXMin, 1.0, kCfKstarXMax, 1.0);
+    one->SetLineStyle(2);
+    one->SetLineColor(kGray + 2);
+    one->Draw("same");
+  } else {
+    TLatex* t = new TLatex();
+    t->SetNDC(kTRUE);
+    t->DrawLatex(0.15, 0.5, "CF_{direct}: unavailable");
+  }
+
+  canvas->cd(0);
+  TLatex* title = new TLatex();
+  title->SetNDC(kTRUE);
+  title->SetTextSize(0.024);
+  title->SetTextFont(62);
+  TString binTag =
+      (kstarBinTarget > 0.0) ? Form("  [#Deltak*#approx%.3f GeV/c]", kstarBinTarget) : "  [native #Deltak*]";
+  title->DrawLatex(0.02, 0.985,
+                   Form("%s  %s (cent9 [%d,%d])  direct-mass-fit purity / yield diagnostics%s%s", channelBase.c_str(),
+                        slice.id.c_str(), slice.cent9Min, slice.cent9Max, binTag.Data(),
+                        haveAny ? "" : "  [no data]"));
+}
+
+// ---------------------------------------------------------------------------
+// kstarMassFitCF ROT/MIX mass-background subtraction QA (dedicated PDF)
+// S = F - alpha * B,  alpha = int_side F / int_side B  (left+right SB windows)
+// ---------------------------------------------------------------------------
+// Mass-axis rebin applied to SE/ME F and B projections before alpha, S, and gaus fit.
+// Trial value (YAML wiring deferred); set 1 to disable.
+static const Int_t kKmfMassRebin = 3;
+
+static Bool_t getChannelSidebandWindows(const std::string& channelBase, Double_t& lMin, Double_t& lMax,
+                                        Double_t& rMin, Double_t& rMax) {
+  lMin = 0.995;
+  lMax = 1.010;
+  rMin = 1.035;
+  rMax = 1.060;
+  if (!gConfigLoaded) return kTRUE;
+  const FemtoConfig& fc = ConfigManager::GetInstance().GetFemtoConfig();
+  const FemtoConfig::ChannelDef* chL = fc.FindChannel(channelBase + "_leftSB");
+  const FemtoConfig::ChannelDef* chR = fc.FindChannel(channelBase + "_rightSB");
+  if (chL) {
+    lMin = chL->signalMin;
+    lMax = chL->signalMax;
+  }
+  if (chR) {
+    rMin = chR->signalMin;
+    rMax = chR->signalMax;
+  }
+  return kTRUE;
+}
+
+static const Int_t kKmfStatusOk = 0;
+static const Int_t kKmfStatusFitFail = 1;
+static const Int_t kKmfStatusNegYield = 2;
+static const Int_t kKmfStatusLowStat = 3;
+static const Int_t kKmfStatusNormFail = 4;
+static const Int_t kKmfStatusNonFinite = 5;
+
+static Double_t histIntegralRange(TH1* h, Double_t xMin, Double_t xMax) {
+  if (!h) return 0.0;
+  Int_t b0 = h->GetXaxis()->FindBin(xMin + 1e-9);
+  Int_t b1 = h->GetXaxis()->FindBin(xMax - 1e-9);
+  if (b1 < b0) return 0.0;
+  return h->Integral(b0, b1);
+}
+
+static Double_t histIntegralAndErrorRange(TH1* h, Double_t xMin, Double_t xMax, Double_t& err) {
+  err = 0.0;
+  if (!h) return 0.0;
+  Int_t b0 = h->GetXaxis()->FindBin(xMin + 1e-9);
+  Int_t b1 = h->GetXaxis()->FindBin(xMax - 1e-9);
+  if (b1 < b0) return 0.0;
+  return h->IntegralAndError(b0, b1, err);
+}
+
+static Double_t kmfAlphaFromWindows(TH1* hF, TH1* hB, Double_t lMin, Double_t lMax, Double_t rMin, Double_t rMax,
+                                    Double_t& alphaErr) {
+  alphaErr = 0.0;
+  Double_t eFL = 0.0, eFR = 0.0, eBL = 0.0, eBR = 0.0;
+  const Double_t fSide =
+      histIntegralAndErrorRange(hF, lMin, lMax, eFL) + histIntegralAndErrorRange(hF, rMin, rMax, eFR);
+  const Double_t bSide =
+      histIntegralAndErrorRange(hB, lMin, lMax, eBL) + histIntegralAndErrorRange(hB, rMin, rMax, eBR);
+  const Double_t eF = TMath::Sqrt(eFL * eFL + eFR * eFR);
+  const Double_t eB = TMath::Sqrt(eBL * eBL + eBR * eBR);
+  if (bSide <= 0.0) return 0.0;
+  const Double_t a = fSide / bSide;
+  Double_t rel2 = 0.0;
+  if (fSide > 0.0) rel2 += TMath::Power(eF / fSide, 2);
+  rel2 += TMath::Power(eB / bSide, 2);
+  alphaErr = TMath::Abs(a) * TMath::Sqrt(rel2);
+  return a;
+}
+
+static Double_t kmfAlphaFromSingleWindow(TH1* hF, TH1* hB, Double_t mMin, Double_t mMax, Double_t& alphaErr) {
+  alphaErr = 0.0;
+  Double_t eF = 0.0, eB = 0.0;
+  const Double_t fSide = histIntegralAndErrorRange(hF, mMin, mMax, eF);
+  const Double_t bSide = histIntegralAndErrorRange(hB, mMin, mMax, eB);
+  if (bSide <= 0.0) return 0.0;
+  const Double_t a = fSide / bSide;
+  Double_t rel2 = 0.0;
+  if (fSide > 0.0) rel2 += TMath::Power(eF / fSide, 2);
+  rel2 += TMath::Power(eB / bSide, 2);
+  alphaErr = TMath::Abs(a) * TMath::Sqrt(rel2);
+  return a;
+}
+
+static void kmfApplyAlphaErrorToS(TH1* hS, TH1* hB, Double_t alphaErr) {
+  if (!hS || !hB || alphaErr <= 0.0) return;
+  const Int_t n = hS->GetNbinsX();
+  for (Int_t i = 1; i <= n; ++i) {
+    const Double_t b = hB->GetBinContent(i);
+    const Double_t e0 = hS->GetBinError(i);
+    const Double_t eA = TMath::Abs(b) * alphaErr;
+    hS->SetBinError(i, TMath::Sqrt(e0 * e0 + eA * eA));
+  }
+}
+
+static void getKstarMassFitCfTemplateOrder(std::vector<std::string>& tags) {
+  tags.clear();
+  std::string def = "rot";
+  Bool_t xcheck = kTRUE;
+  if (gConfigLoaded) {
+    const FemtoConfig& fc = ConfigManager::GetInstance().GetFemtoConfig();
+    def = fc.kstarMassFitCfTemplate;
+    xcheck = fc.kstarMassFitCfCrossCheck;
+  }
+  if (def != "rot" && def != "mix") def = "rot";
+  tags.push_back(def);
+  if (xcheck) tags.push_back(def == "rot" ? "mix" : "rot");
+}
+
+static Int_t kmfYieldStatus(Bool_t fitOk, Double_t nSig, Double_t errNSig, Bool_t lowStat) {
+  if (lowStat) return kKmfStatusLowStat;
+  if (!fitOk) return kKmfStatusFitFail;
+  if (!TMath::Finite(nSig) || !TMath::Finite(errNSig)) return kKmfStatusNonFinite;
+  if (nSig <= 0.0) return kKmfStatusNegYield;
+  return kKmfStatusOk;
+}
+
+static void kmfWarnWindowOverlapOnce(Double_t fitMin, Double_t fitMax, Double_t sigMin, Double_t sigMax,
+                                     Double_t aMin, Double_t aMax, Bool_t alphaSingle) {
+  static Bool_t warned = kFALSE;
+  if (warned || !alphaSingle) return;
+  warned = kTRUE;
+  const Bool_t overlapSig = (aMin < sigMax) && (aMax > sigMin);
+  const Bool_t overlapFit = (aMin < fitMax) && (aMax > fitMin);
+  if (overlapSig) {
+    std::cerr << "[checkHistAnaFemtoPhi] WARNING: kstarMassFitCF α window [" << aMin << "," << aMax
+              << "] overlaps signal window [" << sigMin << "," << sigMax << "]" << std::endl;
+  }
+  if (overlapFit) {
+    std::cerr << "[checkHistAnaFemtoPhi] WARNING: kstarMassFitCF α window [" << aMin << "," << aMax
+              << "] overlaps fit range [" << fitMin << "," << fitMax << "]" << std::endl;
+  }
+}
+
+static std::string kmfBkgWideKey(const std::string& channelBase, const char* templateTag, Bool_t isSE) {
+  // templateTag: "rot" or "mix" -> phi_rot_proton / phi_mix_proton
+  const std::string bach =
+      (channelBase.find("deuteron") != std::string::npos) ? "deuteron" : "proton";
+  return std::string(isSE ? "hPhiMKK_vs_KstarSE_" : "hPhiMKK_vs_KstarME_") + "phi_" + templateTag + "_" + bach +
+         "_wide";
+}
+
+static void drawKstarMassFitCfGuidePage(TCanvas* canvas) {
+  if (!canvas) return;
+  canvas->Clear();
+  canvas->cd(1);
+  gPad->SetMargin(0.08, 0.05, 0.05, 0.05);
+
+  TLatex* title = new TLatex();
+  title->SetNDC(kTRUE);
+  title->SetTextSize(0.036);
+  title->SetTextFont(62);
+  title->DrawLatex(0.06, 0.94, "kstarMassFitCF: per-k* full M_{KK} fit, S = F - #alpha B");
+
+  TLatex* t = new TLatex();
+  t->SetNDC(kTRUE);
+  t->SetTextSize(0.025);
+  Double_t y = 0.88;
+  const Double_t dy = 0.034;
+  t->DrawLatex(0.06, y, "This PDF is the primary CF QA (simple SE/ME ratio is diagnostic only).");
+  y -= dy;
+  t->DrawLatex(0.06, y, "Pages below (phi-p / phi-d only): per k* bin, SE and ME rows.");
+  y -= dy;
+  t->DrawLatex(0.06, y, "Col1: F = full candidate (hPhiMKK_vs_Kstar*_phi_{p,d}_wide)");
+  y -= dy;
+  t->DrawLatex(0.06, y, "Col2: #alpha B = sideband-scaled background template");
+  y -= dy;
+  t->DrawLatex(0.06, y, "Col3: S = F - #alpha B with gaus-only fit (no pol; residual BG ~ 0)");
+  y -= dy;
+  t->DrawLatex(0.06, y, "Col4: overlay F (blue) + #alpha B (black) + S (red) on one pad");
+  y -= dy * 1.2;
+  t->SetTextFont(62);
+  t->DrawLatex(0.06, y, "Mass rebin (before #alpha / S / fit):");
+  t->SetTextFont(42);
+  y -= dy;
+  t->DrawLatex(0.08, y, Form("SE and ME: Rebin(%d) on F and B projections (kKmfMassRebin).",
+                             kKmfMassRebin));
+  y -= dy * 1.2;
+  t->DrawLatex(0.08, y, Form("Low k*: merge first %d x %.3f-GeV/c bins before projection and fit.",
+                             getKstarMassFitCfLowKstarMergeBins(), getKstarMassFitCfKstarBinTarget()));
+  y -= dy * 1.2;
+  t->SetTextFont(62);
+  t->DrawLatex(0.06, y, "Scale:");
+  t->SetTextFont(42);
+  y -= dy;
+  {
+    Double_t aMin = 0.0, aMax = 0.0;
+    if (getKstarMassFitCfAlphaSingleWindow(aMin, aMax)) {
+      t->DrawLatex(0.08, y,
+                   Form("#alpha = [#int F dM] / [#int B dM] over right-only M_{KK}: %.3f - %.3f GeV/c^{2}", aMin, aMax));
+    } else {
+      t->DrawLatex(0.08, y, "#alpha = [#int_{L}+#int_{R} F dM] / [#int_{L}+#int_{R} B dM]  (L/R = leftSB/rightSB)");
+    }
+  }
+  y -= dy * 1.2;
+  t->SetTextFont(62);
+  t->DrawLatex(0.06, y, "Templates:");
+  t->SetTextFont(42);
+  y -= dy;
+  t->DrawLatex(0.08, y, "ROT: hPhiMKK_vs_Kstar{SE,ME}_phi_rot_{proton,deuteron}_wide");
+  y -= dy;
+  t->DrawLatex(0.08, y, "MIX: hPhiMKK_vs_Kstar{SE,ME}_phi_mix_{proton,deuteron}_wide (current K #times buffer opposite K)");
+  y -= dy * 1.2;
+  t->DrawLatex(0.06, y, "After each (base, template, cent) mass-fit series: CF pages from Y_SE/Y_ME on S.");
+  y -= dy;
+  t->DrawLatex(0.06, y, "C_{raw}(k*) = Y_SE(k*)/Y_ME(k*);  C_{norm} scaled to ~1 in channel normQMin-normQMax.");
+  y -= dy;
+  t->DrawLatex(0.06, y, "Graphs also written to sidecar ROOT (CF_kmf_{rot|mix}_*_{raw|norm}, kmf_Y_*, kmf_fitstatus_*).");
+  y -= dy;
+  t->DrawLatex(0.06, y, "k* binning matches kstarMassFitCfKstarBinWidth; centrality: pct_0_10 / 0_20 / 0_30.");
+  y -= dy * 1.2;
+  t->SetTextColor(kRed + 1);
+  t->DrawLatex(0.06, y, "MIX keys need a farm re-run after switching to standard current#timesbuffer MIX.");
+}
+
+// One page per k* bin: Divide(4,2): row0 SE F / αB / S+fit / overlay, row1 ME.
+// Optionally fills nSigSE/ME (+errors) from S fits when pointers are non-null.
+static Bool_t drawKstarMassFitCfKstarPage(TCanvas* canvas, TFile* fin, const FemtoConfig::CfCentSlice& slice,
+                                         const std::string& channelBase, const char* templateTag, Int_t iyFirst,
+                                         Int_t iyLast, Double_t kstar, TH2* h2Fse, TH2* h2Fme, TH2* h2Bse, TH2* h2Bme,
+                                         Double_t kstarBinTarget, std::vector<TH1*>& keepAlive, Double_t* nSigSE,
+                                         Double_t* eSigSE, Double_t* nSigME, Double_t* eSigME, Int_t* statusSE,
+                                         Int_t* statusME) {
+  if (!canvas) return kFALSE;
+  canvas->Clear();
+  canvas->Divide(4, 2);
+
+  Double_t fitMin = 0.99, fitMax = 1.06, sigmaMin = 0.002, sigmaMax = 0.020;
+  Double_t purityMinK = 0.0, purityMaxK = 0.65, clampMin = 0.05, clampMax = 1.0;
+  Int_t minEntries = 20;
+  Bool_t preferPol2 = kTRUE;
+  getKstarMassFitCfFitConfig(fitMin, fitMax, sigmaMin, sigmaMax, purityMinK, purityMaxK, minEntries, clampMin, clampMax,
+                      preferPol2);
+  (void)preferPol2;  // S uses gaus-only; purityDirectFitModel is legacy direct mass-fit only
+  Double_t sigMin = 1.012, sigMax = 1.026;
+  getChannelSignalMassWindow(channelSignal(channelBase), sigMin, sigMax);
+  Double_t alphaMassMin = 0.0, alphaMassMax = 0.0;
+  const Bool_t alphaSingle = getKstarMassFitCfAlphaSingleWindow(alphaMassMin, alphaMassMax);
+  Double_t lMin = 0.0, lMax = 0.0, rMin = 0.0, rMax = 0.0;
+  if (!alphaSingle) getChannelSidebandWindows(channelBase, lMin, lMax, rMin, rMax);
+  kmfWarnWindowOverlapOnce(fitMin, fitMax, sigMin, sigMax, alphaMassMin, alphaMassMax, alphaSingle);
+  const Double_t kstarLo = h2Fse->GetYaxis()->GetBinLowEdge(iyFirst);
+  const Double_t kstarHi = h2Fse->GetYaxis()->GetBinUpEdge(iyLast);
+  if (h2Fme && (h2Fme->GetYaxis()->GetBinLowEdge(iyFirst) != kstarLo ||
+                h2Fme->GetYaxis()->GetBinUpEdge(iyLast) != kstarHi)) {
+    std::cerr << "[checkHistAnaFemtoPhi] ERROR: kstarMassFitCF SE/ME k* merge mismatch for " << channelBase
+              << " " << slice.id << " iy=[" << iyFirst << "," << iyLast << "]" << std::endl;
+  }
+
+  auto makeProj = [&](TH2* h2, const char* tag) -> TH1* {
+    if (!h2) return 0;
+    TH1* h = h2->ProjectionX(Form("_m3sub_%s_%s_%s_%d_%d", templateTag, channelBase.c_str(), tag, iyFirst, iyLast),
+                             iyFirst, iyLast);
+    if (!h) return 0;
+    h->SetDirectory(0);
+    keepAlive.push_back(h);
+    return h;
+  };
+
+  TH1* hFse = makeProj(h2Fse, "Fse");
+  TH1* hFme = makeProj(h2Fme, "Fme");
+  TH1* hBse = makeProj(h2Bse, "Bse");
+  TH1* hBme = makeProj(h2Bme, "Bme");
+
+  // Rebin mass axis for SE and ME (F and B) before alpha, subtraction, and fit.
+  auto rebinMass = [&](TH1* h) {
+    if (!h || kKmfMassRebin <= 1) return;
+    h->Rebin(kKmfMassRebin);
+  };
+  rebinMass(hFse);
+  rebinMass(hFme);
+  rebinMass(hBse);
+  rebinMass(hBme);
+
+  auto buildScaledAndS = [&](TH1* hF, TH1* hB, Double_t& alphaOut, Double_t& alphaErrOut, TH1*& hBscOut, TH1*& hSOut) {
+    alphaOut = 0.0;
+    alphaErrOut = 0.0;
+    hBscOut = 0;
+    hSOut = 0;
+    if (!hF || !hB) return;
+    alphaOut = alphaSingle ? kmfAlphaFromSingleWindow(hF, hB, alphaMassMin, alphaMassMax, alphaErrOut)
+                           : kmfAlphaFromWindows(hF, hB, lMin, lMax, rMin, rMax, alphaErrOut);
+    if (!TMath::Finite(alphaOut) || !TMath::Finite(alphaErrOut)) {
+      alphaOut = 0.0;
+      alphaErrOut = 0.0;
+    }
+    hBscOut = (TH1*)hB->Clone(Form("%s_scaled", hB->GetName()));
+    hBscOut->SetDirectory(0);
+    hBscOut->Scale(alphaOut);
+    keepAlive.push_back(hBscOut);
+    hSOut = (TH1*)hF->Clone(Form("%s_sub", hF->GetName()));
+    hSOut->SetDirectory(0);
+    hSOut->Add(hBscOut, -1.0);
+    kmfApplyAlphaErrorToS(hSOut, hB, alphaErrOut);
+    keepAlive.push_back(hSOut);
+  };
+
+  Double_t aSE = 0.0, aME = 0.0, aSEerr = 0.0, aMEerr = 0.0;
+  TH1 *hBscSE = 0, *hSSE = 0, *hBscME = 0, *hSME = 0;
+  buildScaledAndS(hFse, hBse, aSE, aSEerr, hBscSE, hSSE);
+  buildScaledAndS(hFme, hBme, aME, aMEerr, hBscME, hSME);
+
+  Bool_t okSE = kFALSE, okME = kFALSE;
+  KstarMassFitCfFitResult frSE, frME;
+
+  auto drawOverlay = [&](TH1* hF, TH1* hBsc, TH1* hS, const char* rowTag, Double_t alpha) {
+    if (!hF && !hBsc && !hS) {
+      TLatex* z = new TLatex();
+      z->SetNDC(kTRUE);
+      z->DrawLatex(0.2, 0.5, Form("%s: no overlay", rowTag));
+      return;
+    }
+    // Clones so pad-1..3 styles / axes stay independent of the composite pad.
+    TH1* cF = hF ? (TH1*)hF->Clone(Form("%s_ovF", hF->GetName())) : 0;
+    TH1* cB = hBsc ? (TH1*)hBsc->Clone(Form("%s_ovB", hBsc->GetName())) : 0;
+    TH1* cS = hS ? (TH1*)hS->Clone(Form("%s_ovS", hS->GetName())) : 0;
+    if (cF) {
+      cF->SetDirectory(0);
+      keepAlive.push_back(cF);
+    }
+    if (cB) {
+      cB->SetDirectory(0);
+      keepAlive.push_back(cB);
+    }
+    if (cS) {
+      cS->SetDirectory(0);
+      keepAlive.push_back(cS);
+    }
+
+    Double_t ymin = 0.0, ymax = 0.0;
+    Bool_t first = kTRUE;
+    auto accum = [&](TH1* h) {
+      if (!h) return;
+      const Double_t lo = h->GetMinimum();
+      const Double_t hi = h->GetMaximum();
+      if (first) {
+        ymin = lo;
+        ymax = hi;
+        first = kFALSE;
+      } else {
+        if (lo < ymin) ymin = lo;
+        if (hi > ymax) ymax = hi;
+      }
+    };
+    accum(cF);
+    accum(cB);
+    accum(cS);
+    const Double_t pad = 0.08 * (ymax - ymin);
+    if (pad > 0.0) {
+      ymin -= pad;
+      ymax += pad;
+    } else {
+      ymax = (ymax == 0.0) ? 1.0 : ymax * 1.1;
+    }
+
+    TH1* frame = cF ? cF : (cB ? cB : cS);
+    frame->SetTitle(Form("%s overlay (#alpha=%.3f);#it{M}_{KK};Counts", rowTag, alpha));
+    frame->SetMinimum(ymin);
+    frame->SetMaximum(ymax);
+    if (cF) {
+      cF->SetLineColor(kBlue + 1);
+      cF->SetMarkerColor(kBlue + 1);
+      cF->SetMarkerStyle(20);
+      cF->Draw("E");
+      if (cB) {
+        cB->SetLineColor(kBlack);
+        cB->SetLineWidth(2);
+        cB->Draw("HIST SAME");
+      }
+      if (cS) {
+        cS->SetLineColor(kRed);
+        cS->SetMarkerColor(kRed);
+        cS->SetMarkerStyle(20);
+        cS->Draw("E SAME");
+      }
+    } else if (cB) {
+      cB->SetLineColor(kBlack);
+      cB->Draw("HIST");
+      if (cS) {
+        cS->SetLineColor(kRed);
+        cS->SetMarkerColor(kRed);
+        cS->Draw("E SAME");
+      }
+    } else {
+      cS->SetLineColor(kRed);
+      cS->SetMarkerColor(kRed);
+      cS->Draw("E");
+    }
+    TLatex* leg = new TLatex();
+    leg->SetNDC(kTRUE);
+    leg->SetTextSize(0.040);
+    leg->SetTextColor(kBlue + 1);
+    leg->DrawLatex(0.14, 0.86, "F");
+    leg->SetTextColor(kBlack);
+    leg->DrawLatex(0.22, 0.86, "#alpha B");
+    leg->SetTextColor(kRed);
+    leg->DrawLatex(0.38, 0.86, "S");
+  };
+
+  // Row 0: SE  pads 1-4
+  canvas->cd(1);
+  if (hFse) {
+    hFse->SetTitle(Form("SE F  %.3f<k*<%.3f;#it{M}_{KK};Counts", kstarLo, kstarHi));
+    hFse->SetLineColor(kBlue + 1);
+    hFse->Draw("E");
+  }
+  canvas->cd(2);
+  if (hBscSE) {
+    hBscSE->SetTitle(Form("SE #alpha B (#alpha=%.3f #pm %.3f);#it{M}_{KK};Counts", aSE, aSEerr));
+    hBscSE->SetLineColor(kBlack);
+    hBscSE->Draw("HIST");
+  } else {
+    TLatex* z = new TLatex();
+    z->SetNDC(kTRUE);
+    z->DrawLatex(0.2, 0.5, "SE: missing BG");
+  }
+  canvas->cd(3);
+  if (hSSE) {
+    hSSE->SetTitle(Form("SE S = F-#alpha B (gaus);#it{M}_{KK};Counts"));
+    hSSE->SetMarkerColor(kRed);
+    hSSE->SetLineColor(kRed);
+    hSSE->Draw("E");
+    okSE = fitPurityGausOnly(hSSE, fitMin, fitMax, sigMin, sigMax, sigmaMin, sigmaMax, frSE);
+    if (okSE) {
+      TF1* fDraw = new TF1(Form("_m3sub_se_%d_%d", iyFirst, iyLast), "gaus", fitMin, fitMax);
+      fDraw->SetParameters(frSE.amp, frSE.mean, frSE.sigma);
+      fDraw->SetLineColor(kMagenta + 1);
+      fDraw->SetLineWidth(2);
+      fDraw->Draw("SAME");
+    }
+    TLatex* lat = new TLatex();
+    lat->SetNDC(kTRUE);
+    lat->SetTextSize(0.045);
+    lat->DrawLatex(0.14, 0.84, Form("N_{sig}=%.1f %s", okSE ? frSE.nSig : 0.0, okSE ? "" : "FAIL"));
+  }
+  canvas->cd(4);
+  drawOverlay(hFse, hBscSE, hSSE, "SE", aSE);
+
+  // Row 1: ME  pads 5-8
+  canvas->cd(5);
+  if (hFme) {
+    hFme->SetTitle(Form("ME F  %.3f<k*<%.3f;#it{M}_{KK};Counts", kstarLo, kstarHi));
+    hFme->SetLineColor(kBlue + 1);
+    hFme->Draw("E");
+  }
+  canvas->cd(6);
+  if (hBscME) {
+    hBscME->SetTitle(Form("ME #alpha B (#alpha=%.3f #pm %.3f);#it{M}_{KK};Counts", aME, aMEerr));
+    hBscME->SetLineColor(kBlack);
+    hBscME->Draw("HIST");
+  } else {
+    TLatex* z = new TLatex();
+    z->SetNDC(kTRUE);
+    z->DrawLatex(0.2, 0.5, "ME: missing BG");
+  }
+  canvas->cd(7);
+  if (hSME) {
+    hSME->SetTitle(Form("ME S = F-#alpha B (gaus);#it{M}_{KK};Counts"));
+    hSME->SetMarkerColor(kRed);
+    hSME->SetLineColor(kRed);
+    hSME->Draw("E");
+    okME = fitPurityGausOnly(hSME, fitMin, fitMax, sigMin, sigMax, sigmaMin, sigmaMax, frME);
+    if (okME) {
+      TF1* fDraw = new TF1(Form("_m3sub_me_%d_%d", iyFirst, iyLast), "gaus", fitMin, fitMax);
+      fDraw->SetParameters(frME.amp, frME.mean, frME.sigma);
+      fDraw->SetLineColor(kMagenta + 1);
+      fDraw->SetLineWidth(2);
+      fDraw->Draw("SAME");
+    }
+    TLatex* lat = new TLatex();
+    lat->SetNDC(kTRUE);
+    lat->SetTextSize(0.045);
+    lat->DrawLatex(0.14, 0.84, Form("N_{sig}=%.1f %s", okME ? frME.nSig : 0.0, okME ? "" : "FAIL"));
+  }
+  canvas->cd(8);
+  drawOverlay(hFme, hBscME, hSME, "ME", aME);
+
+  canvas->cd(0);
+  TLatex* title = new TLatex();
+  title->SetNDC(kTRUE);
+  title->SetTextSize(0.020);
+  title->SetTextFont(62);
+  title->DrawLatex(0.02, 0.985,
+                   Form("%s  %s  template=%s  %.3f<k*<%.3f GeV/c  (x=%.3f)  Rebin(%d)  F | #alpha B | S+gaus | overlay",
+                        channelBase.c_str(), slice.id.c_str(), templateTag, kstarLo, kstarHi, kstar,
+                        kKmfMassRebin));
+  (void)minEntries;
+  (void)fin;
+  (void)slice;
+
+  const Int_t stSE = kmfYieldStatus(okSE, frSE.nSig, frSE.errNSig, kFALSE);
+  const Int_t stME = kmfYieldStatus(okME, frME.nSig, frME.errNSig, kFALSE);
+  if (nSigSE) *nSigSE = (stSE == kKmfStatusOk) ? frSE.nSig : 0.0;
+  if (eSigSE) *eSigSE = (stSE == kKmfStatusOk) ? frSE.errNSig : 0.0;
+  if (nSigME) *nSigME = (stME == kKmfStatusOk) ? frME.nSig : 0.0;
+  if (eSigME) *eSigME = (stME == kKmfStatusOk) ? frME.errNSig : 0.0;
+  if (statusSE) *statusSE = stSE;
+  if (statusME) *statusME = stME;
+  return (stSE == kKmfStatusOk && stME == kKmfStatusOk);
+}
+
+static void drawKstarMassFitCfPage(TCanvas* canvas, const FemtoConfig::CfCentSlice& slice,
+                                    const std::string& channelBase, const char* templateTag,
+                                    TGraphErrors* gNSE, TGraphErrors* gNME, TGraphErrors* gCF,
+                                    TGraphErrors* gCFn) {
+  if (!canvas) return;
+  canvas->Clear();
+  canvas->SetCanvasSize(1400, 1000);
+  canvas->Divide(2, 2);
+
+  auto drawOne = [&](Int_t pad, TGraphErrors* g, const char* ytitle, Bool_t logy, Double_t yMin, Double_t yMax) {
+    canvas->cd(pad);
+    if (!g) {
+      TLatex* t = new TLatex();
+      t->SetNDC(kTRUE);
+      t->DrawLatex(0.2, 0.5, "no data");
+      return;
+    }
+    if (logy) gPad->SetLogy(1);
+    g->SetMarkerStyle(20);
+    g->GetXaxis()->SetLimits(kCfKstarXMin, kCfKstarXMax);
+    g->Draw("AP");
+    if (g->GetHistogram()) {
+      g->GetHistogram()->GetXaxis()->SetRangeUser(kCfKstarXMin, kCfKstarXMax);
+      g->GetHistogram()->SetTitle(Form("%s %s template=%s;%s", channelBase.c_str(), slice.id.c_str(),
+                                       templateTag, ytitle));
+      if (yMax > yMin) g->GetHistogram()->GetYaxis()->SetRangeUser(yMin, yMax);
+    }
+  };
+
+  drawOne(1, gNSE, "k* [GeV/c];Y_{SE} from S fit", kTRUE, 0.0, 0.0);
+  if (gNSE) gNSE->SetMarkerColor(kBlack);
+  drawOne(2, gNME, "k* [GeV/c];Y_{ME} from S fit", kTRUE, 0.0, 0.0);
+  if (gNME) {
+    gNME->SetMarkerColor(kRed);
+    gNME->SetMarkerStyle(21);
+  }
+  canvas->cd(3);
+  if (gCF) {
+    gCF->SetMarkerStyle(20);
+    gCF->SetMarkerColor(kBlue + 1);
+    gCF->GetXaxis()->SetLimits(kCfKstarXMin, kCfKstarXMax);
+    gCF->Draw("AP");
+    if (gCF->GetHistogram()) {
+      gCF->GetHistogram()->GetXaxis()->SetRangeUser(kCfKstarXMin, kCfKstarXMax);
+      gCF->GetHistogram()->SetTitle(
+          Form("C_{raw}=Y_{SE}/Y_{ME} %s %s %s;k* [GeV/c];C_{raw}", channelBase.c_str(), slice.id.c_str(),
+               templateTag));
+    }
+    TLine* one = new TLine(kCfKstarXMin, 1.0, kCfKstarXMax, 1.0);
+    one->SetLineStyle(2);
+    one->SetLineColor(kGray + 2);
+    one->Draw("same");
+  } else {
+    TLatex* t = new TLatex();
+    t->SetNDC(kTRUE);
+    t->DrawLatex(0.2, 0.5, "CF raw: no data");
+  }
+  canvas->cd(4);
+  if (gCFn) {
+    gCFn->SetMarkerStyle(21);
+    gCFn->SetMarkerColor(kAzure + 2);
+    gCFn->GetXaxis()->SetLimits(kCfKstarXMin, kCfKstarXMax);
+    gCFn->Draw("AP");
+    if (gCFn->GetHistogram()) {
+      gCFn->GetHistogram()->GetXaxis()->SetRangeUser(kCfKstarXMin, kCfKstarXMax);
+      gCFn->GetHistogram()->GetYaxis()->SetRangeUser(0.0, 2.5);
+      gCFn->GetHistogram()->SetTitle(
+          Form("C_{norm} %s %s %s;k* [GeV/c];C_{norm}", channelBase.c_str(), slice.id.c_str(), templateTag));
+    }
+    TLine* one = new TLine(kCfKstarXMin, 1.0, kCfKstarXMax, 1.0);
+    one->SetLineStyle(2);
+    one->SetLineColor(kGray + 2);
+    one->Draw("same");
+  } else {
+    TLatex* t = new TLatex();
+    t->SetNDC(kTRUE);
+    t->DrawLatex(0.2, 0.5, "CF norm: no data / norm window empty");
+  }
+
+  canvas->cd(0);
+  TLatex* title = new TLatex();
+  title->SetNDC(kTRUE);
+  title->SetTextSize(0.024);
+  title->SetTextFont(62);
+  title->DrawLatex(0.02, 0.985,
+                   Form("%s  %s  template=%s  kstarMassFitCF (S=F-#alpha B yields)", channelBase.c_str(),
+                        slice.id.c_str(), templateTag));
+}
+
+static void drawKstarMassFitCfCachedPages(TCanvas* canvas, const TString& pdfPath,
+                                          std::map<std::string, TGraphErrors*>& cfCache) {
+  if (!canvas || !isKstarMassFitCfEnabled()) return;
+  const Double_t kstarBinTarget = getKstarMassFitCfKstarBinTarget();
+  const std::string suf = kmfCacheSuffix(kstarBinTarget);
+  std::vector<std::string> templates;
+  getKstarMassFitCfTemplateOrder(templates);
+  const char* bases[] = {"phi_proton", "phi_deuteron", 0};
+  const char* rebinSliceIds[] = {"pct_0_10", "pct_0_20", "pct_0_30", 0};
+  const std::vector<FemtoConfig::CfCentSlice> allSlices = getCfCentSliceList();
+  for (size_t it = 0; it < templates.size(); ++it) {
+    const std::string tag = templates[it];
+    for (Int_t ib = 0; bases[ib]; ++ib) {
+      const std::string base(bases[ib]);
+      for (Int_t isl = 0; rebinSliceIds[isl]; ++isl) {
+        const FemtoConfig::CfCentSlice* slicePtr = 0;
+        for (size_t is = 0; is < allSlices.size(); ++is) {
+          if (allSlices[is].id == rebinSliceIds[isl]) {
+            slicePtr = &allSlices[is];
+            break;
+          }
+        }
+        if (!slicePtr) continue;
+        const std::string nSeKey =
+            cfSliceCacheKey(slicePtr->id, std::string("kmf_Y_SE_") + tag + "_" + base + suf);
+        const std::string nMeKey =
+            cfSliceCacheKey(slicePtr->id, std::string("kmf_Y_ME_") + tag + "_" + base + suf);
+        const std::string cfKey =
+            cfSliceCacheKey(slicePtr->id, std::string("CF_kmf_") + tag + "_" + base + suf + "_raw");
+        const std::string cfNormKey =
+            cfSliceCacheKey(slicePtr->id, std::string("CF_kmf_") + tag + "_" + base + suf + "_norm");
+        TGraphErrors* gNSE = cfCache.count(nSeKey) ? cfCache[nSeKey] : 0;
+        TGraphErrors* gNME = cfCache.count(nMeKey) ? cfCache[nMeKey] : 0;
+        TGraphErrors* gCF = cfCache.count(cfKey) ? cfCache[cfKey] : 0;
+        TGraphErrors* gCFn = cfCache.count(cfNormKey) ? cfCache[cfNormKey] : 0;
+        drawKstarMassFitCfPage(canvas, *slicePtr, base, tag.c_str(), gNSE, gNME, gCF, gCFn);
+        canvas->Print(pdfPath);
+      }
+    }
+  }
+}
+
+static void drawKstarMassFitCfSection(TCanvas* canvas, TFile* fin, const TString& pdfPath,
+                                     std::vector<TH1*>& keepAlive, std::map<std::string, TGraphErrors*>& cfCache,
+                                     std::map<std::string, Double_t>& metaCache) {
+  if (!canvas || !fin || !isKstarMassFitCfEnabled()) return;
+
+  const Double_t kstarBinTarget = getKstarMassFitCfKstarBinTarget();
+  if (kstarBinTarget <= 0.0) return;
+
+  Double_t fitMin = 0.99, fitMax = 1.06, sigmaMin = 0.002, sigmaMax = 0.020;
+  Double_t purityMinK = 0.0, purityMaxK = 0.65, clampMin = 0.05, clampMax = 1.0;
+  Int_t minEntries = 20;
+  Bool_t preferPol2 = kTRUE;
+  getKstarMassFitCfFitConfig(fitMin, fitMax, sigmaMin, sigmaMax, purityMinK, purityMaxK, minEntries, clampMin, clampMax,
+                      preferPol2);
+  const std::string suf = kmfCacheSuffix(kstarBinTarget);
+
+  canvas->Clear();
+  canvas->SetCanvasSize(1200, 900);
+  drawKstarMassFitCfGuidePage(canvas);
+  canvas->Print(pdfPath);
+
+  const char* bases[] = {"phi_proton", "phi_deuteron", 0};
+  std::vector<std::string> templates;
+  getKstarMassFitCfTemplateOrder(templates);
+  const char* rebinSliceIds[] = {"pct_0_10", "pct_0_20", "pct_0_30", 0};
+  const std::vector<FemtoConfig::CfCentSlice> allSlices = getCfCentSliceList();
+
+  for (size_t it = 0; it < templates.size(); ++it) {
+    const std::string tag = templates[it];
+    for (Int_t ib = 0; bases[ib]; ++ib) {
+      const std::string base(bases[ib]);
+      for (Int_t isl = 0; rebinSliceIds[isl]; ++isl) {
+        const FemtoConfig::CfCentSlice* slicePtr = 0;
+        for (size_t is = 0; is < allSlices.size(); ++is) {
+          if (allSlices[is].id == rebinSliceIds[isl]) {
+            slicePtr = &allSlices[is];
+            break;
+          }
+        }
+        if (!slicePtr) continue;
+
+        TH3* h3Fse = (TH3*)fin->Get(phiMkkVsKstarWideSeKey(base).c_str());
+        TH3* h3Fme = (TH3*)fin->Get(phiMkkVsKstarWideMeKey(base).c_str());
+        TH3* h3Bse = (TH3*)fin->Get(kmfBkgWideKey(base, tag.c_str(), kTRUE).c_str());
+        TH3* h3Bme = (TH3*)fin->Get(kmfBkgWideKey(base, tag.c_str(), kFALSE).c_str());
+        if (!h3Fse || !h3Fme || !h3Bse || !h3Bme) {
+          canvas->Clear();
+          canvas->cd(1);
+          TLatex* lat = new TLatex();
+          lat->SetNDC(kTRUE);
+          lat->SetTextSize(0.03);
+          lat->DrawLatex(0.08, 0.55,
+                         Form("%s %s template=%s: missing wide TH3 (need Maker re-run for MIX)", base.c_str(),
+                              slicePtr->id.c_str(), tag.c_str()));
+          lat->DrawLatex(0.08, 0.48, Form("F SE=%s ME=%s", phiMkkVsKstarWideSeKey(base).c_str(),
+                                         phiMkkVsKstarWideMeKey(base).c_str()));
+          lat->DrawLatex(0.08, 0.41, Form("B SE=%s", kmfBkgWideKey(base, tag.c_str(), kTRUE).c_str()));
+          lat->DrawLatex(0.08, 0.34, Form("B ME=%s", kmfBkgWideKey(base, tag.c_str(), kFALSE).c_str()));
+          canvas->Print(pdfPath);
+          continue;
+        }
+
+        TH2* h2Fse = projectMkkVsKstarForSlice(h3Fse, slicePtr->cent9Min, slicePtr->cent9Max, "_kmfFse");
+        TH2* h2Fme = projectMkkVsKstarForSlice(h3Fme, slicePtr->cent9Min, slicePtr->cent9Max, "_kmfFme");
+        TH2* h2Bse = projectMkkVsKstarForSlice(h3Bse, slicePtr->cent9Min, slicePtr->cent9Max, "_kmfBse");
+        TH2* h2Bme = projectMkkVsKstarForSlice(h3Bme, slicePtr->cent9Min, slicePtr->cent9Max, "_kmfBme");
+        if (!h2Fse || !h2Fme || !h2Bse || !h2Bme) {
+          delete h2Fse;
+          delete h2Fme;
+          delete h2Bse;
+          delete h2Bme;
+          continue;
+        }
+        if (h2Fse->GetNbinsY() != h2Fme->GetNbinsY() || h2Fse->GetNbinsY() != h2Bse->GetNbinsY() ||
+            h2Fse->GetNbinsY() != h2Bme->GetNbinsY()) {
+          std::cerr << "[checkHistAnaFemtoPhi] ERROR: kstarMassFitCF SE/ME TH2 k* binning mismatch for " << base
+                    << " " << slicePtr->id << " template=" << tag << std::endl;
+          delete h2Fse;
+          delete h2Fme;
+          delete h2Bse;
+          delete h2Bme;
+          continue;
+        }
+        const Int_t kRebin = kmfRebinFactorForWidth(h2Fse->GetYaxis()->GetBinWidth(1), kstarBinTarget);
+        if (kRebin > 1) {
+          h2Fse = (TH2*)h2Fse->RebinY(kRebin);
+          h2Fme = (TH2*)h2Fme->RebinY(kRebin);
+          h2Bse = (TH2*)h2Bse->RebinY(kRebin);
+          h2Bme = (TH2*)h2Bme->RebinY(kRebin);
+        }
+
+        std::vector<Double_t> kx, ySE, eSE, yME, eME, cfx, cfy, cfe, stx, sty;
+        canvas->SetCanvasSize(2400, 1000);
+        const Int_t lowKstarMergeBins = getKstarMassFitCfLowKstarMergeBins();
+        for (Int_t iy = 1; iy <= h2Fse->GetNbinsY(); ++iy) {
+          const Int_t iyFirst = iy;
+          const Int_t iyLast =
+              (iyFirst == 1) ? TMath::Min(h2Fse->GetNbinsY(), lowKstarMergeBins) : iyFirst;
+          iy = iyLast;
+          const Double_t kstar =
+              0.5 * (h2Fse->GetYaxis()->GetBinLowEdge(iyFirst) + h2Fse->GetYaxis()->GetBinUpEdge(iyLast));
+          if (kstar < purityMinK || kstar > purityMaxK) continue;
+          Double_t nF = h2Fse->Integral(1, h2Fse->GetNbinsX(), iyFirst, iyLast) +
+                        h2Fme->Integral(1, h2Fme->GetNbinsX(), iyFirst, iyLast);
+          Int_t stSE = kKmfStatusFitFail;
+          Int_t stME = kKmfStatusFitFail;
+          Double_t nse = 0.0, ese = 0.0, nme = 0.0, eme = 0.0;
+          const Bool_t lowStat = (nF < (Double_t)minEntries);
+          if (nF <= 0.0) {
+            stSE = kKmfStatusLowStat;
+            stME = kKmfStatusLowStat;
+            stx.push_back(kstar);
+            sty.push_back((Double_t)kKmfStatusLowStat);
+            continue;
+          }
+          drawKstarMassFitCfKstarPage(canvas, fin, *slicePtr, base, tag.c_str(), iyFirst, iyLast, kstar, h2Fse,
+                                      h2Fme, h2Bse, h2Bme, kstarBinTarget, keepAlive, &nse, &ese, &nme, &eme, &stSE,
+                                      &stME);
+          canvas->Print(pdfPath);
+          if (lowStat) {
+            stSE = kKmfStatusLowStat;
+            stME = kKmfStatusLowStat;
+          }
+          stx.push_back(kstar);
+          const Int_t stPair = (stSE != kKmfStatusOk) ? stSE : stME;
+          sty.push_back((Double_t)stPair);
+          if (stSE != kKmfStatusOk || stME != kKmfStatusOk) continue;
+          if (!(nme > 0.0) || !TMath::Finite(nse) || !TMath::Finite(nme) || !TMath::Finite(ese) ||
+              !TMath::Finite(eme)) {
+            sty.back() = (Double_t)kKmfStatusNonFinite;
+            continue;
+          }
+          const Double_t cf = nse / nme;
+          const Double_t ecf =
+              cf * TMath::Sqrt(TMath::Power(ese / (nse + 1e-12), 2) + TMath::Power(eme / (nme + 1e-12), 2));
+          if (!TMath::Finite(cf) || !TMath::Finite(ecf)) {
+            sty.back() = (Double_t)kKmfStatusNonFinite;
+            continue;
+          }
+          kx.push_back(kstar);
+          ySE.push_back(nse);
+          eSE.push_back(ese);
+          yME.push_back(nme);
+          eME.push_back(eme);
+          cfx.push_back(kstar);
+          cfy.push_back(cf);
+          cfe.push_back(ecf);
+        }
+
+        const std::string nSeKey =
+            cfSliceCacheKey(slicePtr->id, std::string("kmf_Y_SE_") + tag + "_" + base + suf);
+        const std::string nMeKey =
+            cfSliceCacheKey(slicePtr->id, std::string("kmf_Y_ME_") + tag + "_" + base + suf);
+        const std::string cfKey =
+            cfSliceCacheKey(slicePtr->id, std::string("CF_kmf_") + tag + "_" + base + suf + "_raw");
+        const std::string cfNormKey =
+            cfSliceCacheKey(slicePtr->id, std::string("CF_kmf_") + tag + "_" + base + suf + "_norm");
+        const std::string stKey =
+            cfSliceCacheKey(slicePtr->id, std::string("kmf_fitstatus_") + tag + "_" + base + suf);
+
+        TGraphErrors* gNSE = 0;
+        TGraphErrors* gNME = 0;
+        TGraphErrors* gCF = 0;
+        TGraphErrors* gCFn = 0;
+        if (!stx.empty()) {
+          TGraphErrors* gSt = new TGraphErrors((Int_t)stx.size(), &stx[0], &sty[0], 0, 0);
+          gSt->SetTitle(Form("kstarMassFitCF fit status %s %s %s", tag.c_str(), base.c_str(), slicePtr->id.c_str()));
+          cfCache[stKey] = gSt;
+        } else {
+          cfCache[stKey] = 0;
+        }
+        if (!kx.empty()) {
+          gNSE = new TGraphErrors((Int_t)kx.size(), &kx[0], &ySE[0], 0, &eSE[0]);
+          gNSE->SetTitle(Form("Y_{SE}^{S}(k*) kmf-%s %s %s", tag.c_str(), base.c_str(), slicePtr->id.c_str()));
+          cfCache[nSeKey] = gNSE;
+          gNME = new TGraphErrors((Int_t)kx.size(), &kx[0], &yME[0], 0, &eME[0]);
+          gNME->SetTitle(Form("Y_{ME}^{S}(k*) kmf-%s %s %s", tag.c_str(), base.c_str(), slicePtr->id.c_str()));
+          cfCache[nMeKey] = gNME;
+          gCF = new TGraphErrors((Int_t)cfx.size(), &cfx[0], &cfy[0], 0, &cfe[0]);
+          gCF->SetTitle(Form("CF_kmf %s %s %s", tag.c_str(), base.c_str(), slicePtr->id.c_str()));
+          cfCache[cfKey] = gCF;
+
+          const std::string chSig = channelSignal(base);
+          const Double_t nQMin = channelNormQMin(chSig);
+          const Double_t nQMax = channelNormQMax(chSig);
+          Double_t sumC = 0.0;
+          Double_t sumE2 = 0.0;
+          Int_t nNorm = 0;
+          for (size_t i = 0; i < cfx.size(); ++i) {
+            if (cfx[i] < nQMin || cfx[i] > nQMax) continue;
+            if (!TMath::Finite(cfy[i]) || !TMath::Finite(cfe[i])) continue;
+            sumC += cfy[i];
+            sumE2 += cfe[i] * cfe[i];
+            ++nNorm;
+          }
+          if (nNorm > 0 && sumC > 0.0 && TMath::Finite(sumC)) {
+            const Double_t mean = sumC / (Double_t)nNorm;
+            const Double_t errMean = TMath::Sqrt(sumE2) / (Double_t)nNorm;
+            const Double_t scale = 1.0 / mean;
+            const Double_t errScale = errMean / (mean * mean);
+            std::vector<Double_t> ny, ne;
+            for (size_t i = 0; i < cfy.size(); ++i) {
+              ny.push_back(cfy[i] * scale);
+              ne.push_back(TMath::Sqrt(TMath::Power(cfe[i] * scale, 2) + TMath::Power(cfy[i] * errScale, 2)));
+            }
+            gCFn = new TGraphErrors((Int_t)cfx.size(), &cfx[0], &ny[0], 0, &ne[0]);
+            gCFn->SetTitle(Form("CF_{norm} kmf-%s %s %s", tag.c_str(), base.c_str(), slicePtr->id.c_str()));
+            cfCache[cfNormKey] = gCFn;
+            metaCache[cfSliceCacheKey(slicePtr->id, std::string("kmf_normScale_") + tag + "_" + base + suf)] = scale;
+            metaCache[cfSliceCacheKey(slicePtr->id, std::string("kmf_normScaleErr_") + tag + "_" + base + suf)] =
+                errScale;
+          } else {
+            cfCache[cfNormKey] = 0;
+            metaCache[cfSliceCacheKey(slicePtr->id, std::string("kmf_normFail_") + tag + "_" + base + suf)] =
+                (Double_t)kKmfStatusNormFail;
+          }
+        } else {
+          cfCache[nSeKey] = 0;
+          cfCache[nMeKey] = 0;
+          cfCache[cfKey] = 0;
+          cfCache[cfNormKey] = 0;
+        }
+        metaCache[cfSliceCacheKey(slicePtr->id, std::string("kmf_nOk_") + tag + "_" + base + suf)] =
+            (Double_t)cfx.size();
+
+        drawKstarMassFitCfPage(canvas, *slicePtr, base, tag.c_str(), gNSE, gNME, gCF, gCFn);
+        canvas->Print(pdfPath);
+
+        delete h2Fse;
+        delete h2Fme;
+        delete h2Bse;
+        delete h2Bme;
+      }
+    }
+  }
+  canvas->SetCanvasSize(1200, 800);
+  (void)minEntries;
+  (void)preferPol2;
+}
+
+
+static void writeKstarMassFitCfSidecarRoot(const TString& outDir, const TString& anaName, const TString& jobid,
+                                    const Char_t* inputRootFile, const Char_t* mainconfPath,
+                                    std::map<std::string, TGraphErrors*>& cfCache,
+                                    const std::map<std::string, Double_t>& metaCache) {
+  if (!isKstarMassFitCfWriteSidecar()) return;
+
+  TString outPath = outDir + anaName + "_checkHistAnaFemtoPhi_CFkmf";
+  if (jobid.Length()) outPath += "_" + jobid;
+  outPath += ".root";
+
+  TFile* fout = TFile::Open(outPath, "RECREATE");
+  if (!fout || fout->IsZombie()) {
+    std::cerr << "[checkHistAnaFemtoPhi] WARNING: cannot write kstarMassFitCF sidecar " << outPath << std::endl;
+    return;
+  }
+
+  for (std::map<std::string, TGraphErrors*>::iterator it = cfCache.begin(); it != cfCache.end(); ++it) {
+    if (!it->second) continue;
+    const std::string& key = it->first;
+    if (key.find("CF_kmf_") == std::string::npos && key.find("kmf_") == std::string::npos) continue;
+    TGraphErrors* clone = (TGraphErrors*)it->second->Clone(sanitizeGraphName(key));
+    if (clone) {
+      clone->Write();
+      delete clone;
+    }
+  }
+  for (std::map<std::string, Double_t>::const_iterator it = metaCache.begin(); it != metaCache.end(); ++it) {
+    if (it->first.find("kmf_") == std::string::npos) continue;
+    TParameter<Double_t> p(sanitizeGraphName(it->first), it->second);
+    p.Write();
+  }
+
+  TNamed metaInput("meta_inputRoot", inputRootFile ? inputRootFile : "");
+  metaInput.Write();
+  TNamed metaMain("meta_mainconf", mainconfPath ? mainconfPath : "");
+  metaMain.Write();
+  TNamed metaJob("meta_jobid", jobid.Data());
+  metaJob.Write();
+  if (gConfigLoaded) {
+    const FemtoConfig& fc = ConfigManager::GetInstance().GetFemtoConfig();
+    TNamed metaEn("meta_kstarMassFitCfEnabled", fc.kstarMassFitCfEnabled ? "true" : "false");
+    metaEn.Write();
+    TNamed metaTpl("meta_kstarMassFitCfTemplate", fc.kstarMassFitCfTemplate.c_str());
+    metaTpl.Write();
+    TNamed metaX("meta_kstarMassFitCfCrossCheck", fc.kstarMassFitCfCrossCheck ? "true" : "false");
+    metaX.Write();
+    TParameter<Double_t> pMin("meta_kstarMassFitCfFitMassMin", fc.kstarMassFitCfFitMassMin);
+    pMin.Write();
+    TParameter<Double_t> pMax("meta_kstarMassFitCfFitMassMax", fc.kstarMassFitCfFitMassMax);
+    pMax.Write();
+    TParameter<Double_t> pDk("meta_kstarMassFitCfKstarBinWidth", fc.kstarMassFitCfKstarBinWidth);
+    pDk.Write();
+    TParameter<Double_t> pA0("meta_kstarMassFitCfAlphaMassMin", fc.kstarMassFitCfAlphaMassMin);
+    pA0.Write();
+    TParameter<Double_t> pA1("meta_kstarMassFitCfAlphaMassMax", fc.kstarMassFitCfAlphaMassMax);
+    pA1.Write();
+  }
+  fout->Close();
+  delete fout;
+  std::cout << "Done. kstarMassFitCF sidecar: " << outPath << std::endl;
+}
+
+static void drawCfSubMethod5GuidePage(TCanvas* canvas) {
+  if (!canvas) return;
+  canvas->Clear();
+  canvas->cd(1);
+  gPad->SetMargin(0.08, 0.05, 0.05, 0.05);
+
+  TLatex* title = new TLatex();
+  title->SetNDC(kTRUE);
+  title->SetTextSize(0.040);
+  title->SetTextFont(62);
+  title->DrawLatex(0.06, 0.94, "How to read method-5 CF-subtraction pages (4 panels)");
+
+  TLatex* t = new TLatex();
+  t->SetNDC(kTRUE);
+  t->SetTextSize(0.028);
+  Double_t y = 0.88;
+  const Double_t dy = 0.038;
+
+  t->DrawLatex(0.06, y, "Each following page is one centrality slice x bachelor base (p, d, t, ^{3}He, ^{4}He).");
+  y -= dy;
+  t->DrawLatex(0.06, y, "Slices shown: cfCentSlicesQaPdfInclude (default pct_0_10 / pct_0_20 / pct_0_30).");
+  y -= dy * 1.2;
+
+  t->SetTextFont(62);
+  t->DrawLatex(0.06, y, "Formula (method 5):");
+  t->SetTextFont(42);
+  y -= dy;
+  t->DrawLatex(0.08, y, "C_{sig} = norm(SE_{sig}/ME_{sig}),   C_{SB} = norm(SE_{SB}/ME_{SB})");
+  y -= dy;
+  t->DrawLatex(0.08, y, "C_{CFsub} = [C_{sig} - (1-P) C_{SB}] / P");
+  y -= dy;
+  t->DrawLatex(0.08, y, "P = #phi M_{KK} purity in the signal window (slice-constant; fit_slice or fixed YAML).");
+  y -= dy * 1.2;
+
+  t->SetTextFont(62);
+  t->DrawLatex(0.06, y, "Panel layout (2 x 2):");
+  t->SetTextFont(42);
+  y -= dy;
+  t->DrawLatex(0.08, y, "Top-left:   C_{sig} (black) vs C_{SB,SBLR} (red)  -- signal vs combined sideband CF");
+  y -= dy;
+  t->DrawLatex(0.08, y, "Top-right:  C_{sig} (black) vs C_{CFsub} (red)     -- raw vs purity-corrected CF");
+  y -= dy;
+  t->DrawLatex(0.08, y, "Bottom-left: C_{SB,L} vs C_{SB,R}                 -- left/right sideband CF shape check");
+  y -= dy;
+  t->DrawLatex(0.08, y, "Bottom-right: C_{CFsub,SBL} vs C_{CFsub,SBR}       -- L/R corrected CF systematic");
+  y -= dy * 1.2;
+
+  t->SetTextFont(62);
+  t->DrawLatex(0.06, y, "Definitions:");
+  t->SetTextFont(42);
+  y -= dy;
+  t->DrawLatex(0.08, y, "SBLR = SE_{leftSB}+SE_{rightSB} and ME_{leftSB}+ME_{rightSB} summed before CF (no width #alpha).");
+  y -= dy;
+  t->DrawLatex(0.08, y, "norm: same normQ range for C_{sig} and C_{SB} (maker YAML, default 0.5-1.0 GeV/c).");
+  y -= dy;
+  t->DrawLatex(0.08, y, "Centrality: raw SE/ME counts summed over cent9 range, then CF built (not CF average).");
+  y -= dy;
+  t->DrawLatex(0.08, y, "Errors: Poisson-style on SE/ME bins; P uncertainty included when available.");
+  y -= dy * 1.2;
+
+  t->SetTextColor(kRed + 1);
+  t->SetTextFont(62);
+  t->DrawLatex(0.06, y, "Not the same as:");
+  t->SetTextFont(42);
+  y -= dy;
+  t->DrawLatex(0.08, y, "CF_sig_sub_* pages = count-level sideband subtraction before CF.");
+  y -= dy;
+  t->DrawLatex(0.08, y, "C_{genuine} pages (Topic 3) = ME-mass background CF + k*-dependent #lambda_{sig}(k*).");
+  y -= dy * 1.2;
+
+  t->SetTextColor(kBlack);
+  t->SetTextSize(0.024);
+  t->DrawLatex(0.06, y,
+               "Header line on each page: <base> method5 CF-sub <slice> cent9[min,max] P=<value> rebin=<factor>");
+  y -= dy * 0.9;
+  t->DrawLatex(0.06, y, "Sidecar ROOT: <anaName>_checkHistAnaFemtoPhi_CFsub_<jobid>.root (graphs + P + meta).");
+}
+
+static void drawCfSubMethod5SlicePageForBase(TCanvas* canvas, TFile* fin, const FemtoConfig::CfCentSlice& slice,
+                                             const std::string& channelBase,
+                                             std::map<std::string, TGraphErrors*>& cfCache,
+                                             std::map<std::string, Double_t>& purityCache) {
+  if (!canvas) return;
+  canvas->Clear();
+  canvas->Divide(2, 2);
+  const std::string chSig = channelSignal(channelBase);
+  const Double_t normQMin = channelNormQMin(chSig);
+  const Double_t normQMax = channelNormQMax(chSig);
+  const Int_t rebinFactor = getCfSubEffectiveRebin(channelBase);
+
+  TGraphErrors* gSig = getOrComputeSliceSigCfForMethod5(fin, slice.id, slice.cent9Min, slice.cent9Max, channelBase,
+                                                        normQMin, normQMax, rebinFactor, cfCache);
+  TGraphErrors* gSB = getOrComputeSliceSbCfForMethod5(fin, slice.id, slice.cent9Min, slice.cent9Max, channelBase,
+                                                      "SBLR", normQMin, normQMax, rebinFactor, cfCache);
+  TGraphErrors* gSBL = getOrComputeSliceSbCfForMethod5(fin, slice.id, slice.cent9Min, slice.cent9Max, channelBase,
+                                                       channelLeftSb(channelBase), normQMin, normQMax, rebinFactor,
+                                                       cfCache);
+  TGraphErrors* gSBR = getOrComputeSliceSbCfForMethod5(fin, slice.id, slice.cent9Min, slice.cent9Max, channelBase,
+                                                       channelRightSb(channelBase), normQMin, normQMax, rebinFactor,
+                                                       cfCache);
+  TGraphErrors* gSub = computeCfSubMethod5Graph(fin, slice, channelBase, normQMin, normQMax, cfCache, purityCache);
+
+  canvas->cd(1);
+  drawCfGraphOverlay(gSig, gSB, "C_{sig}", "C_{SB} (SBLR)");
+  canvas->cd(2);
+  drawCfGraphOverlay(gSig, gSub, "C_{sig}", "C_{CFsub}");
+  canvas->cd(3);
+  drawCfGraphOverlay(gSBL, gSBR, "C_{SB,L}", "C_{SB,R}");
+  canvas->cd(4);
+  TGraphErrors* gSubL = 0;
+  TGraphErrors* gSubR = 0;
+  std::map<std::string, TGraphErrors*>::const_iterator itL =
+      cfCache.find(cfSliceCacheKey(slice.id, std::string("CF_CFsub_SBL_") + channelBase));
+  std::map<std::string, TGraphErrors*>::const_iterator itR =
+      cfCache.find(cfSliceCacheKey(slice.id, std::string("CF_CFsub_SBR_") + channelBase));
+  if (itL != cfCache.end()) gSubL = itL->second;
+  if (itR != cfCache.end()) gSubR = itR->second;
+  drawCfGraphOverlay(gSubL, gSubR, "C_{CFsub,SBL}", "C_{CFsub,SBR}");
+
+  Double_t P = 0.0;
+  std::map<std::string, Double_t>::const_iterator itP =
+      purityCache.find(cfSliceCacheKey(slice.id, std::string("phi_mass_purity_") + channelBase));
+  if (itP != purityCache.end()) P = itP->second;
+  if (gPad) {
+    TLatex* lat = new TLatex();
+    lat->SetNDC(kTRUE);
+    lat->SetTextSize(0.028);
+    lat->DrawLatex(0.02, 0.97,
+                   Form("%s method5 CF-sub %s cent9[%d,%d] P=%.3f rebin=%d", channelBase.c_str(), slice.id.c_str(),
+                        slice.cent9Min, slice.cent9Max, P, rebinFactor));
+  }
+}
+
 static void drawLambdaSigSlicePageForBase(TCanvas* canvas, TFile* fin, const FemtoConfig::CfCentSlice& slice,
                                           const std::string& channelBase, std::map<std::string, TGraphErrors*>& cfCache) {
   if (!canvas) return;
@@ -1656,6 +4711,171 @@ static void drawLambdaSigSlicePageForBase(TCanvas* canvas, TFile* fin, const Fem
   }
 }
 
+static const FemtoConfig::CfCentSlice* findCfCentSliceById(const std::vector<FemtoConfig::CfCentSlice>& slices,
+                                                             const char* id) {
+  if (!id) return 0;
+  for (size_t i = 0; i < slices.size(); ++i) {
+    if (slices[i].id == id) return &slices[i];
+  }
+  return 0;
+}
+
+// Scale ME M_KK overlay using k* norm-band integrals from M_KK vs k* slice projections.
+static Double_t computeMeMkkOverlayScaleFromMkkKstar(TH2* h2SE, TH2* h2ME, Double_t normQMin, Double_t normQMax) {
+  if (!h2SE || !h2ME) return 1.0;
+  Int_t kyLo = h2SE->GetYaxis()->FindBin(normQMin + 1e-9);
+  Int_t kyHi = h2SE->GetYaxis()->FindBin(normQMax - 1e-9);
+  Double_t seNorm = h2SE->Integral(1, h2SE->GetNbinsX(), kyLo, kyHi);
+  Double_t meNorm = h2ME->Integral(1, h2ME->GetNbinsX(), kyLo, kyHi);
+  if (seNorm <= 0.0 || meNorm <= 0.0) return 1.0;
+  return seNorm / meNorm;
+}
+
+static Double_t drawPhiMkkSeMeCentOverlayPad(TFile* fin, const FemtoConfig::CfCentSlice& slice,
+                                              const std::string& channelBase, std::vector<TH1*>& keepAlive) {
+  const std::string chSig = channelSignal(channelBase);
+  TH3* h3SE = (TH3*)fin->Get(phiMkkVsKstarSeKey(chSig).c_str());
+  TH3* h3ME = (TH3*)fin->Get(phiMkkVsKstarMeKey(chSig).c_str());
+  if (!h3SE || !h3ME) {
+    TLatex* lat = new TLatex();
+    lat->SetNDC(kTRUE);
+    lat->SetTextSize(0.035);
+    lat->DrawLatex(0.15, 0.5, Form("missing TH3: %s", channelBase.c_str()));
+    return -1.0;
+  }
+
+  TH2* h2SE = projectMkkVsKstarForSlice(h3SE, slice.cent9Min, slice.cent9Max, "_mkkse_ov");
+  TH2* h2ME = projectMkkVsKstarForSlice(h3ME, slice.cent9Min, slice.cent9Max, "_mkkme_ov");
+  if (!h2SE || !h2ME) {
+    delete h2SE;
+    delete h2ME;
+    TLatex* lat = new TLatex();
+    lat->SetNDC(kTRUE);
+    lat->SetTextSize(0.035);
+    lat->DrawLatex(0.15, 0.5, Form("projection failed: %s", channelBase.c_str()));
+    return -1.0;
+  }
+
+  const Double_t normQMin = channelNormQMin(chSig);
+  const Double_t normQMax = channelNormQMax(chSig);
+  const Double_t meScale = computeMeMkkOverlayScaleFromMkkKstar(h2SE, h2ME, normQMin, normQMax);
+
+  TH1* hSE = h2SE->ProjectionX(Form("_mkk_xse_%s", channelBase.c_str()), 1, h2SE->GetNbinsY());
+  TH1* hME = h2ME->ProjectionX(Form("_mkk_xme_%s", channelBase.c_str()), 1, h2ME->GetNbinsY());
+  delete h2SE;
+  delete h2ME;
+  if (!hSE || !hME) {
+    delete hSE;
+    delete hME;
+    return -1.0;
+  }
+  hSE->SetDirectory(0);
+  hME->SetDirectory(0);
+  keepAlive.push_back(hSE);
+  keepAlive.push_back(hME);
+
+  TH1* hMEs = (TH1*)hME->Clone(Form("_mkk_mes_%s", channelBase.c_str()));
+  hMEs->SetDirectory(0);
+  hMEs->Scale(meScale);
+  keepAlive.push_back(hMEs);
+
+  hSE->SetLineColor(kBlack);
+  hSE->SetLineWidth(2);
+  hSE->GetXaxis()->SetRangeUser(0.99, 1.06);
+  hSE->SetTitle(Form("M_{KK} %s;M_{KK} [GeV/c^{2}];Counts", channelBase.c_str()));
+  hSE->Draw("HIST");
+  hMEs->SetLineColor(kRed);
+  hMEs->SetLineStyle(2);
+  hMEs->SetLineWidth(2);
+  hMEs->Draw("HIST SAME");
+
+  Double_t sigMin = 1.01;
+  Double_t sigMax = 1.03;
+  getChannelSignalMassWindow(chSig, sigMin, sigMax);
+  if (gPad) {
+    Double_t ylo = gPad->GetUymin();
+    Double_t yhi = gPad->GetUymax();
+    TLine* lLo = new TLine(sigMin, ylo, sigMin, yhi);
+    lLo->SetLineColor(kGreen + 2);
+    lLo->SetLineStyle(2);
+    lLo->Draw("same");
+    TLine* lHi = new TLine(sigMax, ylo, sigMax, yhi);
+    lHi->SetLineColor(kGreen + 2);
+    lHi->SetLineStyle(2);
+    lHi->Draw("same");
+
+    TLegend* leg = new TLegend(0.52, 0.68, 0.88, 0.88);
+    leg->SetBorderSize(0);
+    leg->SetFillStyle(0);
+    leg->SetTextSize(0.03);
+    leg->AddEntry(hSE, "Same Event", "l");
+    leg->AddEntry(hMEs, Form("Mixed Event (x%.3g)", meScale), "l");
+    leg->Draw();
+
+    TLatex* lat = new TLatex();
+    lat->SetNDC(kTRUE);
+    lat->SetTextSize(0.045);
+    const BachelorQaSpec* spec = findBachelorSpecByBase(channelBase.c_str());
+    lat->DrawLatex(0.14, 0.84, spec ? spec->label : channelBase.c_str());
+    lat->SetTextSize(0.028);
+    lat->DrawLatex(0.14, 0.76, Form("norm k*: %.2f-%.2f GeV/c", normQMin, normQMax));
+  }
+  return meScale;
+}
+
+static void drawPhiMkkSeMeCent010SummaryPage(TCanvas* canvas, TFile* fin, std::vector<TH1*>& keepAlive) {
+  if (!canvas || !fin) return;
+  const std::vector<FemtoConfig::CfCentSlice> slices = getCfCentSliceList();
+  const FemtoConfig::CfCentSlice* slice = findCfCentSliceById(slices, "pct_0_10");
+  if (!slice) {
+    std::cout << "[checkHistAnaFemtoPhi] WARNING: pct_0_10 slice not found; skip phi M_KK SE/ME summary page\n";
+    return;
+  }
+
+  canvas->Clear();
+  canvas->Divide(2, 3);
+  std::cout << "[checkHistAnaFemtoPhi] phi M_KK SE/ME overlay page: " << slice->id << " cent9[" << slice->cent9Min
+            << "," << slice->cent9Max << "]\n";
+
+  Double_t scales[5] = {-1.0, -1.0, -1.0, -1.0, -1.0};
+  Int_t nBases = 0;
+  for (Int_t ib = 0; kChannelBases[ib]; ++ib) {
+    canvas->cd(ib + 1);
+    scales[ib] = drawPhiMkkSeMeCentOverlayPad(fin, *slice, std::string(kChannelBases[ib]), keepAlive);
+    ++nBases;
+  }
+
+  canvas->cd(6);
+  gPad->SetMargin(0.08, 0.05, 0.05, 0.05);
+  TLatex* t = new TLatex();
+  t->SetNDC(kTRUE);
+  t->SetTextFont(62);
+  t->SetTextSize(0.038);
+  t->DrawLatex(0.06, 0.92, "#phi M_{KK}: SE vs scaled ME (pct_0_10)");
+  t->SetTextFont(42);
+  t->SetTextSize(0.028);
+  Double_t y = 0.84;
+  const Double_t dy = 0.055;
+  t->DrawLatex(0.06, y, Form("Centrality slice %s (cent9 %d-%d)", slice->id.c_str(), slice->cent9Min, slice->cent9Max));
+  y -= dy;
+  t->DrawLatex(0.06, y, "Source: hPhiMKK_vs_KstarSE/ME_<channel>_signal TH3; sum over k^{*}, cent9 range.");
+  y -= dy;
+  t->DrawLatex(0.06, y, "ME scale = integral(SE)/integral(ME) in k^{*} norm band (same as CF overlay).");
+  y -= dy;
+  t->DrawLatex(0.06, y, "Maker fills TH3 only inside signal mass window; dashed green = signal limits.");
+  y -= dy * 1.2;
+  t->SetTextFont(62);
+  t->DrawLatex(0.06, y, "ME scale factors:");
+  t->SetTextFont(42);
+  y -= dy;
+  for (Int_t ib = 0; ib < nBases; ++ib) {
+    const BachelorQaSpec* spec = findBachelorSpecByBase(kChannelBases[ib]);
+    t->DrawLatex(0.08, y,
+                 Form("%s: %s", spec ? spec->label : kChannelBases[ib],
+                      scales[ib] > 0.0 ? Form("x%.4f", scales[ib]) : "n/a"));
+    y -= dy * 0.9;
+  }
+}
 
 static void drawPhiPairMomAngleMkkLines(const FemtoConfig::ChannelDef* ch) {
   if (!ch || !gPad) return;
@@ -2087,14 +5307,61 @@ void checkHistAnaFemtoPhi(const Char_t* inputRootFile,
   note += "Topic 3: lambda_sig from scaled SE-ME MKK fit (gaus+const); C_bkg from ME mass shape; "
           "C_genuine = 1 + [(C_meas-1) - lambda_bkg(C_bkg-1)]/lambda_sig.\n";
   note += "C_genuine error: analytic propagation; lambda error from gaus fit partial derivatives.\n";
+  note += "method 5 (CF-subtraction): CF_CFsub = [CF_sig - (1-P) CF_SB]/P with CF_SB from "
+          "sideband SE/ME (SBLR sumLR by default); P = slice phi M_KK purity (fit_slice or fixed). "
+          "Distinct from CF_genuine (ME-mass C_bkg). Existing count-level CF_sig_sub_* kept. "
+          "One guide page precedes method5 4-panel slice pages. "
+          "Last page: phi M_KK SE vs k*-norm-scaled ME for pct_0_10 (TH3 projection).\n";
+  note += "Primary CF is kstarMassFitCF: per-k* full M_KK, S=F-αB (ROT default, MIX cross-check), "
+          "C_raw = Y_SE/Y_ME, C_norm in channel normQMin-normQMax. "
+          "QA PDF: ..._kstarMassFitCf[_jobid].pdf; sidecar ..._CFkmf[_jobid].root. "
+          "Simple SE/ME ratio in this PDF is diagnostic only.\n";
+  note += "legacyCfPagesEnabled=false omits Topic 3, direct mass-fit, and Method 5 pages.\n";
+  if (gConfigLoaded) {
+    const FemtoConfig& fc = ConfigManager::GetInstance().GetFemtoConfig();
+    note += Form("method5 YAML: mode=%s purityMode=%s combine=%s lowStatsRebinExtra=%d writeSidecar=%s\n",
+                 fc.cfSubtractionMode.c_str(), fc.cfSubPurityMode.c_str(), fc.cfSubSidebandCombine.c_str(),
+                 fc.cfSubLowStatsRebinExtra, fc.cfSubWriteSidecarRoot ? "true" : "false");
+    note += Form("kstarMassFitCF YAML: enabled=%s template=%s crossCheck=%s fitMass=[%.3f,%.3f] "
+                 "kstarBinWidth=%.3f writeSidecar=%s\n",
+                 fc.kstarMassFitCfEnabled ? "true" : "false", fc.kstarMassFitCfTemplate.c_str(),
+                 fc.kstarMassFitCfCrossCheck ? "true" : "false", fc.kstarMassFitCfFitMassMin,
+                 fc.kstarMassFitCfFitMassMax, fc.kstarMassFitCfKstarBinWidth,
+                 fc.kstarMassFitCfWriteSidecar ? "true" : "false");
+  }
   note += "Re-run analysis after hist/Maker changes so new keys exist in the ROOT file.\n";
+  note += "Phi-daughter production PID is charge-independent (PassPhiDaughterTofPid): "
+          "low p allows TPC-only, high p requires TOF. Loose QA remains TPC-based. "
+          "hPhiDauPid_* and hPhiDauPidUsed_{real,rot,mix}_* compare K+/K- and real/ROT/MIX.\n";
+  note += "phi_mix sampling: lazy uniform permutation of production-PID pair indices "
+          "(current K+ x buffer K- and buffer K+ x current K- combined). "
+          "Cap is stored candidates per current event. No sampling weights. "
+          "NPairPopulation is exact; NEligibleExact is valid only on a full scan. "
+          "hPhiMix_MKK is stored candidates only. Uncapped is validation-only.\n";
 
   std::map<std::string, TGraphErrors*> cfCache;
+  std::map<std::string, Double_t> purityCache;
+  std::map<std::string, Double_t> kmfMetaCache;
   std::vector<TH1*> centProjKeepAlive;
   populateCfCache(fin, cfCache);
   populateCfCentCache(fin, cfCache);
   populateCfSliceCaches(fin, cfCache);
   populatePurityGenuineCaches(fin, cfCache);
+  populateMethod5Caches(fin, cfCache, purityCache);
+  dumpMethod5ConfigLog(purityCache);
+  populateDirectMassFitCaches(fin, cfCache, kmfMetaCache);
+
+  TString kmfPdf;
+  if (isKstarMassFitCfEnabled()) {
+    kmfPdf = TString(outDir) + anaName + "_checkHistAnaFemtoPhi_kstarMassFitCf";
+    if (jobid.Length()) kmfPdf += "_" + jobid;
+    kmfPdf += ".pdf";
+    PdfHeader::OpenPdf(kmfPdf);
+    TCanvas* cKmf = new TCanvas("cKmf", "kstarMassFitCf", 1200, 800);
+    drawKstarMassFitCfSection(cKmf, fin, kmfPdf, centProjKeepAlive, cfCache, kmfMetaCache);
+    PdfHeader::ClosePdf(kmfPdf);
+    delete cKmf;
+  }
 
   PdfHeader::MakePdfHeaderPage(pdfName, "checkHistAnaFemtoPhi.C", inputs, note.Data(), true, anaName);
 
@@ -2594,6 +5861,75 @@ void checkHistAnaFemtoPhi(const Char_t* inputRootFile,
   c1->cd(9); gPad->SetLogz(); h2 = (TH2*)fin->Get("hNSigmaProtonVsPt_Pos"); if (h2) h2->Draw("colz");
   c1->Print(pdfName);
 
+  // Page 10pid: unified phi-daughter PID (loose vs production, K+/K-, real/ROT/MIX)
+  c1->Clear();
+  c1->Divide(3, 3);
+  c1->cd(1); h1 = (TH1*)fin->Get("hPhiDauPid_NLoose_Kp"); if (h1) h1->Draw();
+  c1->cd(2); h1 = (TH1*)fin->Get("hPhiDauPid_NProd_Kp"); if (h1) h1->Draw();
+  c1->cd(3); h1 = (TH1*)fin->Get("hPhiDauPid_NReject_Kp"); if (h1) h1->Draw();
+  c1->cd(4); h1 = (TH1*)fin->Get("hPhiDauPid_NLoose_Km"); if (h1) h1->Draw();
+  c1->cd(5); h1 = (TH1*)fin->Get("hPhiDauPid_NProd_Km"); if (h1) h1->Draw();
+  c1->cd(6); h1 = (TH1*)fin->Get("hPhiDauPid_NReject_Km"); if (h1) h1->Draw();
+  c1->cd(7); h1 = (TH1*)fin->Get("hPhiDauPid_Category_Prod_Kp"); if (h1) h1->Draw();
+  c1->cd(8); h1 = (TH1*)fin->Get("hPhiDauPid_Category_Prod_Km"); if (h1) h1->Draw();
+  c1->cd(9); h1 = (TH1*)fin->Get("hPhiDauPid_Category_Reject_Km"); if (h1) h1->Draw();
+  c1->Print(pdfName);
+
+  c1->Clear();
+  c1->Divide(3, 2);
+  c1->cd(1); gPad->SetLogz(); h2 = (TH2*)fin->Get("hPhiDauPid_TofMatchVsP_Loose_Kp"); if (h2) h2->Draw("colz");
+  c1->cd(2); gPad->SetLogz(); h2 = (TH2*)fin->Get("hPhiDauPid_TofMatchVsP_Prod_Kp"); if (h2) h2->Draw("colz");
+  c1->cd(3); gPad->SetLogz(); h2 = (TH2*)fin->Get("hPhiDauPid_TofMatchVsP_Reject_Kp"); if (h2) h2->Draw("colz");
+  c1->cd(4); gPad->SetLogz(); h2 = (TH2*)fin->Get("hPhiDauPid_TofMatchVsP_Loose_Km"); if (h2) h2->Draw("colz");
+  c1->cd(5); gPad->SetLogz(); h2 = (TH2*)fin->Get("hPhiDauPid_TofMatchVsP_Prod_Km"); if (h2) h2->Draw("colz");
+  c1->cd(6); gPad->SetLogz(); h2 = (TH2*)fin->Get("hPhiDauPid_TofMatchVsP_Reject_Km"); if (h2) h2->Draw("colz");
+  c1->Print(pdfName);
+
+  c1->Clear();
+  c1->Divide(3, 2);
+  c1->cd(1); gPad->SetLogz(); h2 = (TH2*)fin->Get("hPhiDauPidUsed_TofMatchVsP_real_Kp"); if (h2) h2->Draw("colz");
+  c1->cd(2); gPad->SetLogz(); h2 = (TH2*)fin->Get("hPhiDauPidUsed_TofMatchVsP_rot_Kp"); if (h2) h2->Draw("colz");
+  c1->cd(3); gPad->SetLogz(); h2 = (TH2*)fin->Get("hPhiDauPidUsed_TofMatchVsP_mix_Kp"); if (h2) h2->Draw("colz");
+  c1->cd(4); gPad->SetLogz(); h2 = (TH2*)fin->Get("hPhiDauPidUsed_TofMatchVsP_real_Km"); if (h2) h2->Draw("colz");
+  c1->cd(5); gPad->SetLogz(); h2 = (TH2*)fin->Get("hPhiDauPidUsed_TofMatchVsP_rot_Km"); if (h2) h2->Draw("colz");
+  c1->cd(6); gPad->SetLogz(); h2 = (TH2*)fin->Get("hPhiDauPidUsed_TofMatchVsP_mix_Km"); if (h2) h2->Draw("colz");
+  c1->Print(pdfName);
+
+  // Page 10mix: phi_mix sampling / cap QA (null-safe for older ROOT files)
+  c1->Clear();
+  c1->Divide(3, 3);
+  c1->cd(1);
+  h1 = (TH1*)fin->Get("hPhiMix_PairPopulationLog10");
+  if (h1) { gPad->SetLogy(); h1->Draw(); }
+  c1->cd(2);
+  h1 = (TH1*)fin->Get("hPhiMix_AttemptedLog10");
+  if (h1) { gPad->SetLogy(); h1->Draw(); }
+  c1->cd(3);
+  h1 = (TH1*)fin->Get("hPhiMix_NStoredWide");
+  if (h1) { gPad->SetLogy(); h1->Draw(); }
+  c1->cd(4);
+  h1 = (TH1*)fin->Get("hPhiMix_CapHit");
+  if (h1) h1->Draw();
+  c1->cd(5);
+  h1 = (TH1*)fin->Get("hPhiMix_KeepFraction");
+  if (h1) h1->Draw();
+  c1->cd(6);
+  h1 = (TH1*)fin->Get("hPhiMix_FwdRevRatio");
+  if (h1) h1->Draw();
+  c1->cd(7);
+  h1 = (TH1*)fin->Get("hPhiMix_MKK");
+  if (h1) { gPad->SetLogy(); h1->Draw(); }
+  c1->cd(8);
+  h1 = (TH1*)fin->Get("hPhiMix_NCand");
+  if (h1) h1->Draw();
+  c1->cd(9);
+  h2 = (TH2*)fin->Get("hPhiMixSamplerQA");
+  if (h2) {
+    gPad->SetLogz();
+    h2->Draw("colz");
+  }
+  c1->Print(pdfName);
+
   // Page 10b: K- femto candidate QA (used when kaon-minus species is enabled)
   c1->Clear();
   c1->Divide(3, 2);
@@ -2630,6 +5966,30 @@ void checkHistAnaFemtoPhi(const Char_t* inputRootFile,
   // Pages 11a-12c: bachelor QA per species
   for (Int_t ib = 0; ib < kNBachelorQaSpecs; ++ib) {
     drawBachelorFemtoQaPages(c1, fin, pdfName, kBachelorQaSpecs[ib]);
+  }
+
+  // Two-body h-K+/- CFs (phi-daughter kaon selection): one page per bachelor x kaon charge.
+  if (isHKaonTwoBodyEnabled()) {
+    for (Int_t ik = 0; kHKaonSpecies[ik]; ++ik) {
+      const char* klab = (TString(kHKaonSpecies[ik]).EndsWith("plus")) ? "K^{+}" : "K^{-}";
+      for (Int_t ib = 0; kHKaonBachelors[ib]; ++ib) {
+        const std::string ch = std::string(kHKaonSpecies[ik]) + "_" + kHKaonBachelors[ib];
+        c1->Clear();
+        c1->Divide(2, 1);
+        c1->cd(1);
+        drawKstarSeMeOverlay((TH1*)fin->Get(kstarSeHistKey(ch).c_str()), (TH1*)fin->Get(kstarMeHistKey(ch).c_str()),
+                             channelNormQMin(ch), channelNormQMax(ch), centProjKeepAlive);
+        c1->cd(2);
+        drawComputedCf(c1, 2, fin, ch, channelNormQMin(ch), channelNormQMax(ch), cfCache);
+        if (gPad) {
+          TLatex* lat = new TLatex();
+          lat->SetNDC(kTRUE);
+          lat->SetTextSize(0.03);
+          lat->DrawLatex(0.02, 0.98, Form("Two-body %s-%s CF (%s)", kHKaonBachLabels[ib], klab, ch.c_str()));
+        }
+        c1->Print(pdfName);
+      }
+    }
   }
 
   // Page 13a: Phi candidate QA (pre-cut)
@@ -2687,6 +6047,48 @@ void checkHistAnaFemtoPhi(const Char_t* inputRootFile,
     }
   }
   c1->Print(pdfName);
+
+  // Page 14c: PID of quality tracks near signal-window phi (k* thresholds; before CF pages)
+  {
+    c1->Clear();
+    c1->Divide(2, 2);
+    Double_t kLoose = 1.0;
+    Double_t kTight = 0.3;
+    if (gConfigLoaded) {
+      const FemtoConfig& femtoCfg = ConfigManager::GetInstance().GetFemtoConfig();
+      kLoose = femtoCfg.phiNearTrackMaxKstarLoose;
+      kTight = femtoCfg.phiNearTrackMaxKstarTight;
+    }
+    c1->cd(1);
+    gPad->SetLogz();
+    h2 = (TH2*)fin->Get("hDedxVsP_PhiSignalNear_k1");
+    if (h2) {
+      h2->SetTitle(Form("dE/dx vs p (signal #phi, k^{*}<%.2f);p [GeV/c];dE/dx [GeV/cm]", kLoose));
+      h2->Draw("colz");
+    }
+    c1->cd(2);
+    gPad->SetLogz();
+    h2 = (TH2*)fin->Get("hMass2ChargeVsP_PhiSignalNear_k1");
+    if (h2) {
+      h2->SetTitle(Form("m^{2}#times q vs p (signal #phi, k^{*}<%.2f);p [GeV/c];m^{2}#times q", kLoose));
+      h2->Draw("colz");
+    }
+    c1->cd(3);
+    gPad->SetLogz();
+    h2 = (TH2*)fin->Get("hDedxVsP_PhiSignalNear_k03");
+    if (h2) {
+      h2->SetTitle(Form("dE/dx vs p (signal #phi, k^{*}<%.2f);p [GeV/c];dE/dx [GeV/cm]", kTight));
+      h2->Draw("colz");
+    }
+    c1->cd(4);
+    gPad->SetLogz();
+    h2 = (TH2*)fin->Get("hMass2ChargeVsP_PhiSignalNear_k03");
+    if (h2) {
+      h2->SetTitle(Form("m^{2}#times q vs p (signal #phi, k^{*}<%.2f);p [GeV/c];m^{2}#times q", kTight));
+      h2->Draw("colz");
+    }
+    c1->Print(pdfName);
+  }
 
   // Page 15+: Femto k* legacy integrated CF (one page per channel base)
   for (Int_t ib = 0; ib < kNBachelorQaSpecs; ++ib) {
@@ -2827,8 +6229,14 @@ void checkHistAnaFemtoPhi(const Char_t* inputRootFile,
     c1->SetCanvasSize(1200, 800);
   }
 
+  // Primary CF (kstarMassFitCF): default template first, then cross-check if enabled.
+  if (isKstarMassFitCfEnabled()) {
+    drawKstarMassFitCfCachedPages(c1, pdfName, cfCache);
+    c1->SetCanvasSize(1200, 800);
+  }
+
   // Topic 3: lambda_sig and CF_genuine QA (representative slices x channel bases)
-  {
+  if (isLegacyCfPagesEnabled()) {
     const std::vector<FemtoConfig::CfCentSlice> allSlices = getCfCentSliceList();
     c1->SetCanvasSize(1400, 700);
     for (size_t is = 0; is < allSlices.size(); ++is) {
@@ -2844,7 +6252,70 @@ void checkHistAnaFemtoPhi(const Char_t* inputRootFile,
     c1->SetCanvasSize(1200, 800);
   }
 
+  // Kubo-rule background + genuine CF (p, d): old (pseudo-phi average) vs Kubo (sum).
+  if (isKuboTripletEnabled()) {
+    c1->SetCanvasSize(1400, 700);
+    for (Int_t ib = 0; kKuboBases[ib]; ++ib) {
+      drawKuboPagesForBase(c1, fin, std::string(kKuboBases[ib]), pdfName, cfCache);
+      drawDirectMassFitKuboClosureForBase(c1, fin, std::string(kKuboBases[ib]), pdfName, cfCache, kmfMetaCache);
+    }
+    c1->SetCanvasSize(1200, 800);
+  }
+
+  // Legacy: direct mass-fit pages (after Topic 3, before CF-Sub)
+  if (isLegacyCfPagesEnabled()) {
+    c1->Clear();
+    c1->SetCanvasSize(1200, 900);
+    drawDirectMassFitGuidePage(c1);
+    c1->Print(pdfName);
+
+    const std::vector<FemtoConfig::CfCentSlice> allSlices = getCfCentSliceList();
+    c1->SetCanvasSize(1400, 1000);
+    for (size_t is = 0; is < allSlices.size(); ++is) {
+      if (!isSliceInQaPdf(allSlices[is].id)) continue;
+      for (Int_t ib = 0; kChannelBases[ib]; ++ib) {
+        const std::string base(kChannelBases[ib]);
+        drawDirectMassFitSlicePageForBase(c1, fin, allSlices[is], base, cfCache, kmfMetaCache);
+        c1->Print(pdfName);
+        drawDirectMassFitExemplarPageForBase(c1, fin, allSlices[is], base, kmfMetaCache, centProjKeepAlive);
+        c1->Print(pdfName);
+      }
+    }
+    c1->SetCanvasSize(1200, 800);
+  }
+
+  // method 5: CF-subtraction pages (CF_sig / CF_SB / CF_CFsub + L/R systematics)
+  if (isMethod5Enabled()) {
+    c1->Clear();
+    c1->SetCanvasSize(1200, 900);
+    drawCfSubMethod5GuidePage(c1);
+    c1->Print(pdfName);
+
+    const std::vector<FemtoConfig::CfCentSlice> allSlices = getCfCentSliceList();
+    c1->SetCanvasSize(1400, 1000);
+    for (size_t is = 0; is < allSlices.size(); ++is) {
+      if (!isSliceInQaPdf(allSlices[is].id)) continue;
+      for (Int_t ib = 0; kChannelBases[ib]; ++ib) {
+        drawCfSubMethod5SlicePageForBase(c1, fin, allSlices[is], std::string(kChannelBases[ib]), cfCache,
+                                         purityCache);
+        c1->Print(pdfName);
+      }
+    }
+    c1->SetCanvasSize(1200, 800);
+  }
+
+  // Last page: phi M_KK SE vs scaled ME for central 0-10% (pct_0_10)
+  c1->Clear();
+  c1->SetCanvasSize(1400, 900);
+  drawPhiMkkSeMeCent010SummaryPage(c1, fin, centProjKeepAlive);
+  c1->Print(pdfName);
+  c1->SetCanvasSize(1200, 800);
+
   PdfHeader::ClosePdf(pdfName);
+
+  writeCfSubSidecarRoot(outDir, anaName, jobid, inputRootFile, mainconfPath, cfCache, purityCache);
+
+  writeKstarMassFitCfSidecarRoot(outDir, anaName, jobid, inputRootFile, mainconfPath, cfCache, kmfMetaCache);
 
 
 
@@ -2877,6 +6348,12 @@ void checkHistAnaFemtoPhi(const Char_t* inputRootFile,
                            "hPhi_MKK_rot",
                            "hPhi_MKK_vs_BetaGamma",
                            "hPhiRot_MKK",
+                           "hPhiMix_MKK",
+                           "hPhiMix_NCand",
+                           "hPhiMix_NStoredWide",
+                           "hPhiMix_CapHit",
+                           "hPhiMix_KeepFraction",
+                           "hPhiMixSamplerQA",
                            "hPhi_NCand",
                            "hP_Pt_PreFemtoCut",
                            "hP_Pt",
@@ -2903,6 +6380,10 @@ void checkHistAnaFemtoPhi(const Char_t* inputRootFile,
                            "hMass2VsPt_TpcKaon",
                            "hDCAKK_All",
                            "hDCAKK_Pass",
+                           "hDedxVsP_PhiSignalNear_k1",
+                           "hMass2ChargeVsP_PhiSignalNear_k1",
+                           "hDedxVsP_PhiSignalNear_k03",
+                           "hMass2ChargeVsP_PhiSignalNear_k03",
                            0};
     for (Int_t i = 0; keys[i]; ++i) {
       TObject* o = fin->Get(keys[i]);
@@ -2966,6 +6447,29 @@ void checkHistAnaFemtoPhi(const Char_t* inputRootFile,
         std::cout << "      " << centCh[ic] << ": nPoints=" << nPts << "\n";
       }
     }
+    if (isHKaonTwoBodyEnabled()) {
+      std::cout << "  --- h-K two-body (phi-daughter kaon selection) ---\n";
+      for (Int_t ik = 0; kHKaonSpecies[ik]; ++ik) {
+        for (Int_t ib = 0; kHKaonBachelors[ib]; ++ib) {
+          const std::string ch = std::string(kHKaonSpecies[ik]) + "_" + kHKaonBachelors[ib];
+          std::cout << "    " << ch << ": SE=" << getHistEntries(fin, (std::string("hKstarSE_") + ch).c_str())
+                    << " ME=" << getHistEntries(fin, (std::string("hKstarME_") + ch).c_str())
+                    << " CF nPoints=" << getCachedCfPointCount(cfCache, ch.c_str()) << "\n";
+        }
+      }
+    }
+    if (isKuboTripletEnabled()) {
+      std::cout << "  --- Kubo triplet background ---\n";
+      const char* tripPrefixes[] = {"hKstarTripSEKp_", "hKstarTripSEKm_", "hKstarTripMix_", "hMKKtriplet_", 0};
+      for (Int_t ib = 0; kKuboBases[ib]; ++ib) {
+        std::cout << "    " << kKuboBases[ib] << ":";
+        for (Int_t ip = 0; tripPrefixes[ip]; ++ip) {
+          std::cout << " " << tripPrefixes[ip] << "="
+                    << getHistEntries(fin, (std::string(tripPrefixes[ip]) + kKuboBases[ib]).c_str());
+        }
+        std::cout << "\n";
+      }
+    }
     printCfSliceConsoleSummary(cfCache);
     std::cout << "=============================================================\n\n";
   }
@@ -2981,4 +6485,13 @@ void checkHistAnaFemtoPhi(const Char_t* inputRootFile,
   fin->Close();
 
   std::cout << "Done. QA PDF: " << pdfName.Data() << std::endl;
+  if (kmfPdf.Length()) {
+    std::cout << "Done. kstarMassFitCF PDF: " << kmfPdf.Data() << std::endl;
+  }
+  if (isCfSubWriteSidecar() && isMethod5Enabled()) {
+    TString sidecar = TString(outDir) + anaName + "_checkHistAnaFemtoPhi_CFsub";
+    if (jobid.Length()) sidecar += "_" + jobid;
+    sidecar += ".root";
+    std::cout << "Done. CFsub sidecar: " << sidecar.Data() << std::endl;
+  }
 }

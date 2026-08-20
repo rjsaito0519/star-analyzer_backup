@@ -143,7 +143,10 @@ Notes:
 
 After submission, SUMS leaves many files named `anaName+jobid+*` (e.g. `auau3p85fxt_anaPhiCCBCC32EA67793F5A24B5F6BA44EE413_0.csh`). To avoid "Argument list too long" when removing them:
 
-- **Delete** all matching files: `./cleanup_job_run.sh <anaName+jobid>` (e.g. `./cleanup_job_run.sh auau3p85fxt_anaPhiCCBCC32EA67793F5A24B5F6BA44EE413`).
+- **Delete one job's loose files:** `./script/cleanup_job_run.sh <anaName+jobid>` (e.g. `./script/cleanup_job_run.sh auau3p85fxt_anaPhiCCBCC32EA67793F5A24B5F6BA44EE413`).
+- **Delete all loose SUMS files:** `./script/cleanup_job_run.sh --all`. This removes only regular files directly under
+  `job/run/` whose names contain a 32-hex jobid. It preserves `runmeta/`, `configlog/`, `joblog/`, and all other
+  subdirectories.
 - **Archive** them under `joblog/<anaName>/`: `./archive_job_run.sh <anaName+jobid>` (creates `joblog/<anaName>/` if needed).
 
 `runmeta/sums_artifacts_<anaName>_<jobid>.tar.gz` already preserves a stable submit-time copy of those SUMS-generated files, so cleanup/archive of the loose originals is now an operational convenience rather than the only reproducibility path.

@@ -17,10 +17,10 @@ From the project root:
 ```
 
 - **Treat this as satisfying the “build in SL7 / batch-like STAR” rule** in `docs/ai/AGENT_RULES.md`: the wrapper runs `make` inside `star-bnl/star-sw:latest` with `STAR_HOST_SYS` resolved to the same `sl73_*` / `sl74_*` tree used for batch, not the host OS compiler.
-- Default: `make clean && make` with `BUILD_BITS=64`.
-- Use `--no-clean` when `src/third_party/yaml-cpp/build` already exists and you only need to rebuild project libraries.
+- Default: `make clean && make -jN` (`N` = `nproc`) with `BUILD_BITS=64`. Pass `-j` yourself to override.
+- Use `--no-clean` when `src/third_party/yaml-cpp/build` already exists and you only need to rebuild project libraries. Host `make -jN` on AL9 is not this path: `starver` may set `STAR_HOST_SYS=al96_*` while the STAR package only has `sl73_*` / `sl74_*`.
 - After `make clean`, CMake is required to rebuild `yaml-cpp`; the wrapper prepends cvmfs `cmake` when available.
-- **Alternative (interactive SL7 node):** `sl7` → `source ./script/setup.sh <mainconf>` → `make`. Use whichever is faster for you; both produce STAR-matched binaries when the same `mainconf` / `libraryTag` is used.
+- **Alternative (interactive SL7 node):** `sl7` → `source ./script/setup.sh <mainconf>` → `make -j$(nproc)`. Use whichever is faster for you; both produce STAR-matched binaries when the same `mainconf` / `libraryTag` is used.
 
 ## Run and QA
 

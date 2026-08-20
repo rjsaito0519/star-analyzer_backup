@@ -3,6 +3,8 @@
 #include "TH1F.h"
 #include "TH1I.h"
 #include "TH2F.h"
+#include "TH2D.h"
+#include "TH2.h"
 #include "TH3F.h"
 #include "TH3.h"
 #include "yaml-cpp/yaml.h"
@@ -153,9 +155,14 @@ Bool_t HistManager::LoadFromFile(const Char_t* yamlPath) {
                            zSpec.nBins, zSpec.min, zSpec.max);
         m_histograms[name] = h;
       } else if (hasY) {
-        TH2F* h = new TH2F(name.c_str(), title.c_str(),
-                           xSpec.nBins, xSpec.min, xSpec.max,
-                           ySpec.nBins, ySpec.min, ySpec.max);
+        TH2* h = 0;
+        if (typeStr == "TH2D") {
+          h = new TH2D(name.c_str(), title.c_str(), xSpec.nBins, xSpec.min, xSpec.max, ySpec.nBins, ySpec.min,
+                       ySpec.max);
+        } else {
+          h = new TH2F(name.c_str(), title.c_str(), xSpec.nBins, xSpec.min, xSpec.max, ySpec.nBins, ySpec.min,
+                       ySpec.max);
+        }
         if (histNode["yTitle"]) {
           h->GetYaxis()->SetTitle(trim(histNode["yTitle"].as<std::string>()).c_str());
         }
@@ -233,6 +240,24 @@ void HistManager::Fill(const char* name, Double_t x, Double_t y, Double_t z) {
     ((TH3*)h)->Fill(x, y, z);
   } else {
     std::cerr << "[HistManager] Fill(x,y,z) failed: histogram '" << name << "' is not TH3." << std::endl;
+  }
+}
+
+void HistManager::Fill2DWeighted(const char* name, Double_t x, Double_t y, Double_t weight) {
+  if (!name) return;
+  TH1* h = Get(name);
+  if (!h) {
+    if (m_missingKeyWarned.find(name) == m_missingKeyWarned.end()) {
+      std::cerr << "[HistManager] Fill2DWeighted failed: histogram '" << name
+                << "' not found (not defined in YAML)." << std::endl;
+      m_missingKeyWarned.insert(name);
+    }
+    return;
+  }
+  if (h->InheritsFrom("TH2")) {
+    ((TH2*)h)->Fill(x, y, weight);
+  } else {
+    std::cerr << "[HistManager] Fill2DWeighted failed: histogram '" << name << "' is not TH2." << std::endl;
   }
 }
 

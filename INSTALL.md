@@ -11,7 +11,7 @@ Confirm the following **before** cloning (each line: what / why).
 | Requirement | What | Why |
 |-------------|------|-----|
 | **STAR stack** | You can run `starver` and use `root4star`. | Makers and macros assume STAR ROOT and libraries. |
-| **Build** | `gcc`, `make`, CMake; `root-config` on `PATH` after `starver`. | Builds `libStarAnaConfig.so`, `libStCommon.so`, and `libSt*Maker.so` files. |
+| **Build** | `gcc`, `make`, CMake; `root-config` on `PATH` after `starver`. | Builds `libStarAnaConfig.so` and Maker `.so` files. |
 | **Git** | Clone and submodules. | `yaml-cpp` lives in a submodule. |
 | **Python 3** | `python3` available. | Used by `setup_config_from_analysisinfo.py` and optional list/joblist scripts. |
 | **PyYAML** | `python3 -m pip install --user pyyaml` (if you lack it). | **Required** for `./script/generate_joblist.sh` (batch). Optional for local-only runs if you do not generate joblists. |
@@ -115,17 +115,17 @@ From the **project root**, run one of:
 
 ```bash
 source ./script/setup.sh config/mainconf/main_<anaName>.yaml
-make
+make -j$(nproc)
 ```
 
 ```csh
 source ./script/setup.csh config/mainconf/main_<anaName>.yaml
-make
+make -j`nproc`
 ```
 
 **Note:** `setup.sh` / `setup.csh` must be **sourced**, not executed, because they set `STAR`, `STAR_HOST_SYS`, `PATH`, and `LD_LIBRARY_PATH` in your current shell before `make`.
 
-**SL7-class build without an interactive `sl7` shell:** from the project root you can run **`./script/singularity_make.sh config/mainconf/main_<anaName>.yaml`**. That invokes `make` inside the same **`star-bnl/star-sw:latest`** Singularity image as batch jobs (STAR `sl73_*` / `sl74_*` toolchain), so it is the usual way to satisfy “build like SL7 / like the farm” when you are on AL9, a generic login node, or simply prefer one command over entering `sl7` manually. Default is `make clean && make` with `BUILD_BITS=64`. Use **`--no-clean`** to skip `make clean` when `src/third_party/yaml-cpp/build` is already present. See [docs/REFERENCE.md](docs/REFERENCE.md) — Local with Singularity.
+**SL7-class build without an interactive `sl7` shell:** from the project root you can run **`./script/singularity_make.sh config/mainconf/main_<anaName>.yaml`**. That invokes `make` inside the same **`star-bnl/star-sw:latest`** Singularity image as batch jobs (STAR `sl73_*` / `sl74_*` toolchain), so it is the usual way to satisfy “build like SL7 / like the farm” when you are on AL9, a generic login node, or simply prefer one command over entering `sl7` manually. Default is `make clean && make -jN` (`N` = `nproc`) with `BUILD_BITS=64`. Use **`--no-clean`** to skip `make clean` when `src/third_party/yaml-cpp/build` is already present. On AL9, host `starver` may set `STAR_HOST_SYS=al96_*` even though that tree is missing under the STAR package; do not use host `make` there — use this wrapper (or `sl7` then `source setup.sh`). See [docs/REFERENCE.md](docs/REFERENCE.md) — Local with Singularity.
 
 ---
 
@@ -240,6 +240,7 @@ After submit, see [job/run/README.md](job/run/README.md) for `configlog`, `clean
 |---------|-------------------|
 | `make` fails in yaml-cpp / config lib | Submodule: Step 2. After `make clean`, CMake is required to rebuild `yaml-cpp`; on hosts without a usable host `cmake`, use **`./script/singularity_make.sh <mainconf>`** or **`--no-clean`** if the yaml-cpp build tree already exists. |
 | Wrong STAR / missing `root-config` | Re-source `script/setup.sh` / `script/setup.csh` (Step 6), then verify `echo $STAR`, `echo $STAR_HOST_SYS`, `which root-config`, and `root-config --cflags` before `make`. On hosts where host `make` fails, use **`script/singularity_make.sh <mainconf>`**. |
+| `STAR_HOST_SYS='al96_...' does not exist` / host `make` on AL9 | Host `starver` set an AL9 sysname that this `libraryTag` was not built for. Use **`./script/singularity_make.sh <mainconf> [--no-clean]`** (default `-jN`) or `sl7` then `source ./script/setup.sh <mainconf> && make -jN`. |
 | Library load errors at runtime | On **SL7**, run via **`script/run_anaXxx.sh`** (or match its `LD_LIBRARY_PATH`). On **AL9**, use **`singularity_run_anaLambda.sh`** / **`singularity_run_anaPhi.sh`** and **`singularity_checkHistAnaLambda.sh`** / **`singularity_checkHistAnaPhi.sh`** for QA PDFs. |
 | Joblist script errors | Install PyYAML for the same `python3` you use. |
 | Batch paths wrong | **analysis.workDir** for ROOT output, optional **analysis.logDir** / **analysis.errDir** for stdout/stderr, plus any hand-written stdout/stderr/output paths in custom joblists (Step 4). |

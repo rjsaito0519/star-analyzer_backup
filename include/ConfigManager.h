@@ -19,6 +19,7 @@ class NuclearIdCutConfig;
 class MixingConfig;
 class CentralityCutConfig;
 class FemtoConfig;
+class PhiMesicNucleusConfig;
 
 class ConfigManager {
 public:
@@ -45,6 +46,7 @@ public:
   MixingConfig& GetMixingConfig();
   CentralityCutConfig& GetCentralityCuts();
   FemtoConfig& GetFemtoConfig();
+  PhiMesicNucleusConfig& GetPhiMesicNucleusConfig();
 
 private:
   ConfigManager();
@@ -69,6 +71,7 @@ private:
   MixingConfig* mixingConfig;
   CentralityCutConfig* centralityCuts;
   FemtoConfig* femtoConfig;
+  PhiMesicNucleusConfig* phiMesicNucleusConfig;
 
   Bool_t isLoaded;
   std::map<std::string, std::string> m_mainConfigValues;  ///< Parsed key-value from main.yaml

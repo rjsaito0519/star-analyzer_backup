@@ -1,5 +1,6 @@
 #include "StPhiKKReconstruction.h"
 #include "ConfigManager.h"
+#include "PhiDaughterPid.h"
 #include "kinematics.h"
 #include "cuts/PIDCutConfig.h"
 #include "cuts/PhiCutConfig.h"
@@ -103,6 +104,7 @@ Bool_t InKaonMass2Window(Float_t mass2) {
 }
 
 Bool_t PassTofKaonPid(const PhiKkTrackState& trk) {
+  // Loose collection filter only. Production pair PID is PassPhiDaughterTofPid.
   const PIDCutConfig& pid = ConfigManager::GetInstance().GetPIDCuts();
   if (!pid.requireTOF) return kTRUE;
   TString fallbackMode(pid.tofFallbackMode.c_str());
@@ -125,29 +127,23 @@ Bool_t PassTofKaonPid(const PhiKkTrackState& trk) {
   return pass;
 }
 
-Bool_t PassKplusTofMass2(Float_t pMag, Bool_t tofMatch, Float_t mass2) {
+Bool_t PassPhiDaughterTofPid(Float_t pMag, Bool_t tofMatch, Float_t mass2, Float_t deltaOneOverBeta) {
   const PIDCutConfig& pid = ConfigManager::GetInstance().GetPIDCuts();
-  const Float_t pLow = pid.pMomKaonPID;
-  if (pMag <= pLow) {
-    return !tofMatch || (tofMatch && InKaonMass2Window(mass2));
-  }
-  return tofMatch && InKaonMass2Window(mass2);
-}
-
-Bool_t PassKminusTofMass2(Float_t pMag, Bool_t tofMatch, Float_t mass2) {
-  const PIDCutConfig& pid = ConfigManager::GetInstance().GetPIDCuts();
-  const Float_t pLow = pid.pMomKaonPID;
-  if (pMag <= pLow) {
-    return tofMatch && InKaonMass2Window(mass2);
-  }
-  return InKaonMass2Window(mass2);
+  phi_daughter_pid::Cuts cuts;
+  cuts.pMomKaonPID = pid.pMomKaonPID;
+  cuts.tofUseMass2Cut = pid.tofUseMass2Cut;
+  cuts.tofUseDeltaInvBetaCut = pid.tofUseDeltaInvBetaCut;
+  cuts.minMass2Kaon = pid.minMass2Kaon;
+  cuts.maxMass2Kaon = pid.maxMass2Kaon;
+  cuts.maxAbsDeltaOneOverBetaKaon = pid.maxAbsDeltaOneOverBetaKaon;
+  return phi_daughter_pid::Pass(pMag, tofMatch, mass2, deltaOneOverBeta, cuts);
 }
 
 Bool_t PassPairTofCut(const PhiKkTrackState& kPlus, const PhiKkTrackState& kMinus) {
   const Float_t pKplus = TrackMomentum(kPlus).Mag();
   const Float_t pKminus = TrackMomentum(kMinus).Mag();
-  return PassKplusTofMass2(pKplus, kPlus.tofMatch, kPlus.mass2) &&
-         PassKminusTofMass2(pKminus, kMinus.tofMatch, kMinus.mass2);
+  return PassPhiDaughterTofPid(pKplus, kPlus.tofMatch, kPlus.mass2, kPlus.deltaOneOverBeta) &&
+         PassPhiDaughterTofPid(pKminus, kMinus.tofMatch, kMinus.mass2, kMinus.deltaOneOverBeta);
 }
 
 void FillTofInfo(Float_t& mass2, Float_t& deltaOneOverBeta, Bool_t& tofMatch, StPicoBTofPidTraits* tof,

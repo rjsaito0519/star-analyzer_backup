@@ -1,6 +1,7 @@
 # Makefile for StarAnaConfig, StRefMultCorr, StCommon, and St*Maker libraries
 # Requires: STAR environment sourced via script/setup.sh or script/setup.csh
 # Usage: source ./script/setup.sh config/mainconf/main_<anaName>.yaml && make
+# On AL9 (no sl7): ./script/singularity_make.sh config/mainconf/main_<anaName>.yaml [--no-clean]
 #
 # Maker convention (auto-discovered; no Makefile edit needed for new makers):
 #   StMaker/StXxxMaker/StXxxMaker.cxx + StXxxMaker.h -> lib/libStXxxMaker.so
@@ -33,33 +34,42 @@ else
   $(error Unknown BUILD_BITS='$(BUILD_BITS)' (expected auto, 32, or 64))
 endif
 
+# Prefer $STAR/.$STAR_HOST_SYS when that tree exists. Host starver on AL9
+# exports STAR_HOST_SYS=al96_* even when this libraryTag was not built for it;
+# then fall back the same way as script/setup.sh (sl73/sl74).
+STAR_OBJ :=
 ifneq ($(STAR_HOST_SYS),)
-  STAR_OBJ := $(STAR)/.$(STAR_HOST_SYS)
-  ifeq ($(wildcard $(STAR_OBJ)),)
-    $(error STAR_HOST_SYS='$(STAR_HOST_SYS)' does not exist under $(STAR))
+  ifneq ($(wildcard $(STAR)/.$(STAR_HOST_SYS)),)
+    STAR_OBJ := $(STAR)/.$(STAR_HOST_SYS)
+  else
+    $(warning STAR_HOST_SYS='$(STAR_HOST_SYS)' is not present under $(STAR); falling back to sl73/sl74. On AL9 use ./script/singularity_make.sh <mainconf> [--no-clean] instead of host make.)
   endif
-else ifeq ($(ARCH_FLAGS),-m32)
-  STAR_OBJ := $(STAR)/.sl74_gcc485
-  ifeq ($(wildcard $(STAR_OBJ)),)
-    STAR_OBJ := $(STAR)/.sl73_gcc485
-  endif
-  ifeq ($(wildcard $(STAR_OBJ)),)
-    STAR_OBJ := $(STAR)/.sl74_x8664_gcc485
-  endif
-  ifeq ($(wildcard $(STAR_OBJ)),)
-    STAR_OBJ := $(STAR)/.sl73_x8664_gcc485
-  endif
-else
-  # Default to x86_64 when no explicit STAR_HOST_SYS is exported.
-  STAR_OBJ := $(STAR)/.sl74_x8664_gcc485
-  ifeq ($(wildcard $(STAR_OBJ)),)
-    STAR_OBJ := $(STAR)/.sl73_x8664_gcc485
-  endif
-  ifeq ($(wildcard $(STAR_OBJ)),)
+endif
+
+ifeq ($(STAR_OBJ),)
+  ifeq ($(ARCH_FLAGS),-m32)
     STAR_OBJ := $(STAR)/.sl74_gcc485
-  endif
-  ifeq ($(wildcard $(STAR_OBJ)),)
-    STAR_OBJ := $(STAR)/.sl73_gcc485
+    ifeq ($(wildcard $(STAR_OBJ)),)
+      STAR_OBJ := $(STAR)/.sl73_gcc485
+    endif
+    ifeq ($(wildcard $(STAR_OBJ)),)
+      STAR_OBJ := $(STAR)/.sl74_x8664_gcc485
+    endif
+    ifeq ($(wildcard $(STAR_OBJ)),)
+      STAR_OBJ := $(STAR)/.sl73_x8664_gcc485
+    endif
+  else
+    # Default to x86_64 when STAR_HOST_SYS is unset or its tree is missing.
+    STAR_OBJ := $(STAR)/.sl74_x8664_gcc485
+    ifeq ($(wildcard $(STAR_OBJ)),)
+      STAR_OBJ := $(STAR)/.sl73_x8664_gcc485
+    endif
+    ifeq ($(wildcard $(STAR_OBJ)),)
+      STAR_OBJ := $(STAR)/.sl74_gcc485
+    endif
+    ifeq ($(wildcard $(STAR_OBJ)),)
+      STAR_OBJ := $(STAR)/.sl73_gcc485
+    endif
   endif
 endif
 
@@ -107,7 +117,7 @@ STAR_ANA_CONFIG_SRCS := src/ConfigManager.cpp src/YamlParser.cpp src/HistManager
   src/cuts/EventCutConfig.cpp src/cuts/TrackCutConfig.cpp src/cuts/PIDCutConfig.cpp \
   src/cuts/V0CutConfig.cpp src/cuts/PhiCutConfig.cpp src/cuts/LambdaCutConfig.cpp \
   src/cuts/Lambda1520CutConfig.cpp src/cuts/Sigma1385CutConfig.cpp src/cuts/NuclearIdCutConfig.cpp src/cuts/MixingConfig.cpp \
-  src/cuts/CentralityCutConfig.cpp src/cuts/FemtoConfig.cpp
+  src/cuts/CentralityCutConfig.cpp src/cuts/FemtoConfig.cpp src/cuts/PhiMesicNucleusConfig.cpp
 STAR_ANA_CONFIG_OBJS := $(addprefix $(LIB_DIR)/,$(notdir $(STAR_ANA_CONFIG_SRCS:.cpp=.o)))
 CXXFLAGS_CONFIG := $(ARCH_FLAGS) -O2 -Wall -fPIC -std=c++11 $(ROOTCFLAGS) -Iinclude -I$(YAML_CPP_DIR)/include
 LDFLAGS_CONFIG := $(ARCH_FLAGS) $(ROOTLDFLAGS) -shared -Wl,--whole-archive -L$(YAML_CPP_BUILD) -lyaml-cpp -Wl,--no-whole-archive
@@ -132,9 +142,31 @@ MAKER_DIRS := $(wildcard StMaker/St*Maker)
 MAKER_NAMES := $(notdir $(MAKER_DIRS))
 MAKER_LIBS := $(patsubst %,$(LIB_DIR)/lib%.so,$(MAKER_NAMES))
 
-.PHONY: all clean
+TEST_FEMTO_MIXING_SAMPLER := $(LIB_DIR)/test_femto_mixing_sampler
+TEST_PHI_DAUGHTER_PID := $(LIB_DIR)/test_phi_daughter_pid
+TEST_PHI_MIX_SAMPLER := $(LIB_DIR)/test_phi_mix_sampler
+
+.PHONY: all clean test-femto-mixing-sampler test-phi-daughter-pid test-phi-mix-sampler
 
 all: $(LIB_DIR)/libStarAnaConfig.so $(LIB_DIR)/$(LIB_RMC_NAME) $(LIB_DIR)/$(LIB_COMMON_NAME) $(MAKER_LIBS)
+
+test-femto-mixing-sampler: $(TEST_FEMTO_MIXING_SAMPLER)
+	$(TEST_FEMTO_MIXING_SAMPLER)
+
+$(TEST_FEMTO_MIXING_SAMPLER): tests/test_femto_mixing_sampler.cpp include/FemtoMixingSampler.h | $(LIB_DIR)
+	$(CXX) $(ARCH_FLAGS) -O2 -Wall -std=c++11 -Iinclude $< -o $@
+
+test-phi-daughter-pid: $(TEST_PHI_DAUGHTER_PID)
+	$(TEST_PHI_DAUGHTER_PID)
+
+$(TEST_PHI_DAUGHTER_PID): tests/test_phi_daughter_pid.cpp include/PhiDaughterPid.h include/FemtoCandidate.h | $(LIB_DIR)
+	$(CXX) $(ARCH_FLAGS) -O2 -Wall -std=c++11 $(ROOTCFLAGS) -Iinclude $< -o $@ $(ROOTLIBS)
+
+test-phi-mix-sampler: $(TEST_PHI_MIX_SAMPLER)
+	$(TEST_PHI_MIX_SAMPLER)
+
+$(TEST_PHI_MIX_SAMPLER): tests/test_phi_mix_sampler.cpp include/FemtoPhiMixSampler.h include/FemtoMixingSampler.h | $(LIB_DIR)
+	$(CXX) $(ARCH_FLAGS) -O2 -Wall -std=c++11 -Iinclude $< -o $@
 
 # Build yaml-cpp via CMake (static lib, must match STAR/ROOT bitness)
 $(YAML_CPP_BUILD)/libyaml-cpp.a:
@@ -176,6 +208,8 @@ $(LIB_DIR)/CentralityCutConfig.o: src/cuts/CentralityCutConfig.cpp include/cuts/
 	$(CXX) $(CXXFLAGS_CONFIG) -c src/cuts/CentralityCutConfig.cpp -o $@
 $(LIB_DIR)/FemtoConfig.o: src/cuts/FemtoConfig.cpp include/cuts/FemtoConfig.h
 	$(CXX) $(CXXFLAGS_CONFIG) -c src/cuts/FemtoConfig.cpp -o $@
+$(LIB_DIR)/PhiMesicNucleusConfig.o: src/cuts/PhiMesicNucleusConfig.cpp include/cuts/PhiMesicNucleusConfig.h
+	$(CXX) $(CXXFLAGS_CONFIG) -c src/cuts/PhiMesicNucleusConfig.cpp -o $@
 
 # libStRefMultCorr.so (no rootcint dict; used from compiled Makers only)
 $(LIB_DIR)/$(LIB_RMC_NAME): $(LIB_DIR) $(RMC_OBJS)
@@ -215,4 +249,5 @@ $(foreach maker,$(MAKER_NAMES),$(eval $(call MAKER_RULE,$(maker))))
 
 clean:
 	rm -f $(LIB_DIR)/*.o $(LIB_DIR)/*.so
+	rm -f $(TEST_FEMTO_MIXING_SAMPLER) $(TEST_PHI_DAUGHTER_PID) $(TEST_PHI_MIX_SAMPLER)
 	rm -rf $(YAML_CPP_BUILD)

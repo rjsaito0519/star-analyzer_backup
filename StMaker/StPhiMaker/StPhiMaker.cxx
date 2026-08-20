@@ -681,6 +681,7 @@ Double_t StPhiMaker::ApplyRapidityFrame(Double_t yLab) const {
 
 //-----------------------------------------------------------------------------
 Bool_t StPhiMaker::PassTofKaonPid(const Track_t& trk) const {
+  // Collection/fallback only. Production pair PID is PassPhiDaughterTofPid via PassPairTofCut.
   return StPhiKKReconstruction::PassTofKaonPid(ToPhiKkTrack(trk));
 }
 
