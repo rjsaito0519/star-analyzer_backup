@@ -13,10 +13,17 @@ public:
   Double_t nSigmaPion;
   Double_t minDCAProton;   // min DCA to PV for proton (reject primaries)
   Double_t minDCAPion;     // min DCA to PV for pion
-  Double_t maxDaughterDCA;   // max DCA between p and pi- at V0 (dca12)
-  Double_t maxDCAV0;         // max DCA of Lambda to primary vertex
+  Double_t maxDaughterDCA;   // max DCA between p and pi- at V0 (legacy / fallback)
+  Double_t maxDcaLambdaDaughters;  // max DCA between proton and Lambda pion (cm); <=0 => maxDaughterDCA
+  Double_t maxDcaLambdaBachelor;   // max DCA between Lambda and bachelor pion (cm); <=0 => maxDaughterDCA
+  Double_t maxDCAV0;         // max DCA of Xi (or V0) to primary vertex
   Double_t minCosPointing;   // min cos(pointing angle)
   Double_t maxPathLength;    // max |path length| for helix (e.g. 100)
+  Double_t minDCABachelor;   // min DCA to PV for Xi bachelor pion
+  Double_t minPtDaughter;    // min pT of p / Lambda-pi / bachelor (GeV/c)
+  Double_t minDecayLengthXi; // min Xi flight distance from PV (cm)
+  Double_t lambdaMassWindow; // |M_pπ - PDG Λ|; fill QA before this cut
+  Double_t xiMassWindow;     // |M_Λπ - PDG Ξ| for candidate list only; <=0 => no list cut
 
   // Track quality cuts (added for S/N improvement)
   Int_t    minNHitsFit;      // min nHitsFit for daughter tracks
