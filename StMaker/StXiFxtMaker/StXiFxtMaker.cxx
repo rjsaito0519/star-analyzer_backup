@@ -360,8 +360,28 @@ Int_t StXiFxtMaker::Make() {
 
         if (pathLengthLam >= 0.0) continue;
 
+        const Double_t decayLengthLam = (v2 - v1).Mag();
+        if (m_histManager) {
+          m_histManager->Fill("hDecayLengthXi_vs_Lam", decayLength, decayLengthLam);
+        }
+        if (lam.requireDecayLengthOrder && decayLength >= decayLengthLam) continue;
+
+        TVector3 pBach = momXi - pLam;
+        TLorentzVector lFakeP;
+        TLorentzVector lFakePi;
+        lFakeP.SetVectM(pBach, kProtonMass);
+        lFakePi.SetVectM(momPi, kPionMass);
+        const Double_t mFake = (lFakeP + lFakePi).M();
+        if (m_histManager) {
+          m_histManager->Fill("hFakeLambda_InvMass", mFake);
+        }
+        if (lam.fakeLambdaWindow > 0.0 &&
+            TMath::Abs(mFake - lam.fakeLambdaMean) < lam.fakeLambdaWindow) {
+          continue;
+        }
+
         TLorentzVector lBach;
-        lBach.SetVectM(momXi - pLam, kPionMass);
+        lBach.SetVectM(pBach, kPionMass);
         TLorentzVector lLamFixed;
         lLamFixed.SetVectM(pLam, kLambdaMass);
         TLorentzVector lXi = lLamFixed + lBach;

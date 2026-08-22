@@ -32,6 +32,9 @@ void LambdaCutConfig::SetDefaults() {
   minDecayLengthXi = 0.0;
   lambdaMassWindow = 0.006;
   xiMassWindow = -1.0;
+  requireDecayLengthOrder = kFALSE;
+  fakeLambdaMean = 1.115683;
+  fakeLambdaWindow = -1.0;
   minNHitsFit = 15;
   minNHitsRatio = 0.52;
 }
@@ -92,6 +95,15 @@ Bool_t LambdaCutConfig::ParseYamlFile(const Char_t* filename) {
   }
   if (values.find("xiMassWindow") != values.end()) {
     xiMassWindow = YamlParser::ToDouble(values["xiMassWindow"], xiMassWindow);
+  }
+  if (values.find("requireDecayLengthOrder") != values.end()) {
+    requireDecayLengthOrder = YamlParser::ToBool(values["requireDecayLengthOrder"], requireDecayLengthOrder);
+  }
+  if (values.find("fakeLambdaMean") != values.end()) {
+    fakeLambdaMean = YamlParser::ToDouble(values["fakeLambdaMean"], fakeLambdaMean);
+  }
+  if (values.find("fakeLambdaWindow") != values.end()) {
+    fakeLambdaWindow = YamlParser::ToDouble(values["fakeLambdaWindow"], fakeLambdaWindow);
   }
   if (values.find("minNHitsFit") != values.end()) {
     minNHitsFit = (Int_t)YamlParser::ToDouble(values["minNHitsFit"], (Double_t)minNHitsFit);

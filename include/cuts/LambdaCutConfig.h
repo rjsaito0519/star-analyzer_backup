@@ -25,6 +25,11 @@ public:
   Double_t lambdaMassWindow; // |M_pπ - PDG Λ|; fill QA before this cut
   Double_t xiMassWindow;     // |M_Λπ - PDG Ξ| for candidate list only; <=0 => no list cut
 
+  // Step 2 (StXiFxtMaker only): jan1 purity cuts
+  Bool_t   requireDecayLengthOrder; // if true: reject when L_Xi >= L_Lambda (cm)
+  Double_t fakeLambdaMean;          // fake Λ veto center (GeV)
+  Double_t fakeLambdaWindow;        // |M_fake - mean| max; <=0 => veto off
+
   // Track quality cuts (added for S/N improvement)
   Int_t    minNHitsFit;      // min nHitsFit for daughter tracks
   Double_t minNHitsRatio;    // min nHitsFit/nHitsMax ratio (split track suppression)
