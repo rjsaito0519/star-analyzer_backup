@@ -23,6 +23,7 @@
 
 #include <iostream>
 #include <set>
+#include <vector>
 
 namespace {
 const Double_t kPionMass = 0.139570;
@@ -298,40 +299,45 @@ Int_t StK0shortFxtMaker::Make() {
   }
 
   Double_t bField = event->bField();
-  Int_t nPionPosCand = 0;
-  Int_t nPionNegCand = 0;
   Int_t nK0shortPairs = 0;
   Int_t nSkippedShared = 0;
 
-  for (Int_t ip = 0; ip < nTr; ip++) {
-    StPicoTrack* p = mPicoDst->track(ip);
-    if (!p) continue;
-    if (PassPionPosCuts(p, pVtx)) nPionPosCand++;
-  }
-  for (Int_t ii = 0; ii < nTr; ii++) {
-    StPicoTrack* pi = mPicoDst->track(ii);
-    if (!pi) continue;
-    if (PassPionNegCuts(pi, pVtx)) nPionNegCand++;
-  }
-
-  for (Int_t ip = 0; ip < nTr; ip++) {
-    StPicoTrack* p = mPicoDst->track(ip);
-    if (!p) continue;
-    if (!PassPionPosCuts(p, pVtx)) continue;
-    if (!xiUsed.empty() && xiUsed.count(ip)) {
-      nSkippedShared++;
-      continue;
+  // One pass: build π⁺ / π⁻ candidate index lists (same pattern as StXiFxtMaker).
+  std::vector<Int_t> pionPosIdx;
+  std::vector<Int_t> pionNegIdx;
+  pionPosIdx.reserve(nTr / 4);
+  pionNegIdx.reserve(nTr / 4);
+  for (Int_t i = 0; i < nTr; i++) {
+    StPicoTrack* trk = mPicoDst->track(i);
+    if (!trk) continue;
+    if (PassPionPosCuts(trk, pVtx)) {
+      if (!xiUsed.empty() && xiUsed.count(i)) {
+        nSkippedShared++;
+      } else {
+        pionPosIdx.push_back(i);
+      }
     }
+    if (PassPionNegCuts(trk, pVtx)) {
+      if (!xiUsed.empty() && xiUsed.count(i)) {
+        nSkippedShared++;
+      } else {
+        pionNegIdx.push_back(i);
+      }
+    }
+  }
+  const Int_t nPionPosCand = (Int_t)pionPosIdx.size();
+  const Int_t nPionNegCand = (Int_t)pionNegIdx.size();
 
-    for (Int_t ii = 0; ii < nTr; ii++) {
-      if (ii == ip) continue;
+  for (size_t ipos = 0; ipos < pionPosIdx.size(); ipos++) {
+    const Int_t ip = pionPosIdx[ipos];
+    StPicoTrack* p = mPicoDst->track(ip);
+    if (!p) continue;
+
+    for (size_t ineg = 0; ineg < pionNegIdx.size(); ineg++) {
+      const Int_t ii = pionNegIdx[ineg];
+      if (ip == ii) continue;
       StPicoTrack* pi = mPicoDst->track(ii);
       if (!pi) continue;
-      if (!PassPionNegCuts(pi, pVtx)) continue;
-      if (!xiUsed.empty() && xiUsed.count(ii)) {
-        nSkippedShared++;
-        continue;
-      }
 
       TVector3 v0, momPip, momPim;
       Double_t dca12 = 0;
