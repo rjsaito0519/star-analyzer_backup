@@ -392,6 +392,126 @@ void checkHistAnaKXiFemto(const Char_t* inputRootFile,
     c1->Print(pdfName);
   }
 
+  // Page 7 (Step 4): |DeltaPhi*| SE vs ME (signal)
+  TH1* hDpsSE = (TH1*)fin->Get("hDeltaPhiStarSE_k0_xi");
+  TH1* hDpsME = (TH1*)fin->Get("hDeltaPhiStarME_k0_xi");
+  if (hDpsSE || hDpsME) {
+    c1->Clear();
+    c1->Divide(2, 2);
+    c1->cd(1);
+    if (hDpsSE) {
+      hDpsSE->SetLineColor(kRed);
+      hDpsSE->SetTitle("SE |#Delta#phi^{*}| (signal);|#Delta#phi^{*}| [rad];Counts");
+      hDpsSE->Draw();
+    }
+    c1->cd(2);
+    if (hDpsME) {
+      hDpsME->SetLineColor(kBlue);
+      hDpsME->SetTitle("ME |#Delta#phi^{*}| (signal);|#Delta#phi^{*}| [rad];Counts");
+      hDpsME->Draw();
+    }
+    c1->cd(3);
+    TH1* hDpsSE_L = (TH1*)fin->Get("hDeltaPhiStarSE_k0_xi_leftSB");
+    TH1* hDpsME_L = (TH1*)fin->Get("hDeltaPhiStarME_k0_xi_leftSB");
+    if (hDpsSE_L) {
+      hDpsSE_L->SetLineColor(kRed);
+      hDpsSE_L->Draw();
+    }
+    c1->cd(4);
+    if (hDpsME_L) {
+      hDpsME_L->SetLineColor(kBlue);
+      hDpsME_L->Draw();
+    }
+    c1->Print(pdfName);
+  }
+
+  // Page 8 (Step 4): DeltaEta / opening angle / DeltaPhi lab (signal)
+  TH1* hDeSE = (TH1*)fin->Get("hDeltaEtaSE_k0_xi");
+  TH1* hDeME = (TH1*)fin->Get("hDeltaEtaME_k0_xi");
+  TH1* hOaSE = (TH1*)fin->Get("hOpeningAngleSE_k0_xi");
+  TH1* hOaME = (TH1*)fin->Get("hOpeningAngleME_k0_xi");
+  TH1* hDpSE = (TH1*)fin->Get("hDeltaPhiLabSE_k0_xi");
+  TH1* hDpME = (TH1*)fin->Get("hDeltaPhiLabME_k0_xi");
+  if (hDeSE || hOaSE || hDpSE) {
+    c1->Clear();
+    c1->Divide(3, 2);
+    c1->cd(1);
+    if (hDeSE) {
+      hDeSE->SetLineColor(kRed);
+      hDeSE->SetTitle("SE #Delta#eta (lab);#Delta#eta;Counts");
+      hDeSE->Draw();
+    }
+    c1->cd(2);
+    if (hDeME) {
+      hDeME->SetLineColor(kBlue);
+      hDeME->SetTitle("ME #Delta#eta (lab);#Delta#eta;Counts");
+      hDeME->Draw();
+    }
+    c1->cd(3);
+    if (hOaSE) {
+      hOaSE->SetLineColor(kRed);
+      hOaSE->SetTitle("SE opening angle;#theta [rad];Counts");
+      hOaSE->Draw();
+    }
+    c1->cd(4);
+    if (hOaME) {
+      hOaME->SetLineColor(kBlue);
+      hOaME->SetTitle("ME opening angle;#theta [rad];Counts");
+      hOaME->Draw();
+    }
+    c1->cd(5);
+    if (hDpSE) {
+      hDpSE->SetLineColor(kRed);
+      hDpSE->SetTitle("SE #Delta#phi (lab);#Delta#phi [rad];Counts");
+      hDpSE->Draw();
+    }
+    c1->cd(6);
+    if (hDpME) {
+      hDpME->SetLineColor(kBlue);
+      hDpME->SetTitle("ME #Delta#phi (lab);#Delta#phi [rad];Counts");
+      hDpME->Draw();
+    }
+    c1->Print(pdfName);
+  }
+
+  // Page 9 (Step 4): 2D proximity maps (SE signal)
+  TH2* hEtaPhi = (TH2*)fin->Get("hDeltaEta_vs_DeltaPhiLabSE_k0_xi");
+  TH2* hKstarDps = (TH2*)fin->Get("hKstar_vs_DeltaPhiStarSE_k0_xi");
+  if (hEtaPhi || hKstarDps) {
+    c1->Clear();
+    c1->Divide(2, 1);
+    c1->cd(1);
+    if (hEtaPhi) hEtaPhi->Draw("colz");
+    c1->cd(2);
+    if (hKstarDps) hKstarDps->Draw("colz");
+    c1->Print(pdfName);
+  }
+
+  // Page 10 (Step 4): shared-track QA
+  TH1* hShareSE = (TH1*)fin->Get("hShareRejectSE");
+  TH1* hShareME = (TH1*)fin->Get("hShareRejectME");
+  TH1* hK0Skip = (TH1*)fin->Get("hK0_SkippedSharedWithXi");
+  if (hShareSE || hShareME || hK0Skip) {
+    c1->Clear();
+    c1->Divide(3, 1);
+    c1->cd(1);
+    if (hShareSE) {
+      hShareSE->SetTitle("ShareTracks reject (SE);bin;Counts");
+      hShareSE->Draw();
+    }
+    c1->cd(2);
+    if (hShareME) {
+      hShareME->SetTitle("ShareTracks reject (ME);bin;Counts");
+      hShareME->Draw();
+    }
+    c1->cd(3);
+    if (hK0Skip) {
+      hK0Skip->SetTitle("K0 recon skip (Xi daughter);N_{skip}/event;Counts");
+      hK0Skip->Draw();
+    }
+    c1->Print(pdfName);
+  }
+
   PdfHeader::ClosePdf(pdfName);
   delete c1;
   fin->Close();

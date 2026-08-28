@@ -276,6 +276,56 @@ Double_t StK0XiFxtFemtoMaker::ComputeKStar(const TLorentzVector& pA, const TLore
   return 0.5 * q.Vect().Mag();
 }
 
+StK0XiFxtFemtoMaker::PairKinematics StK0XiFxtFemtoMaker::ComputePairKinematics(const TVector3& momA,
+                                                                               const TVector3& momB) const {
+  PairKinematics kin;
+  const TLorentzVector pA = K0shortP4(momA);
+  const TLorentzVector pB = XiP4(momB);
+  kin.kstar = ComputeKStar(pA, pB);
+
+  kin.deltaEta = momA.Eta() - momB.Eta();
+  kin.deltaPhiLab = momA.DeltaPhi(momB);
+  kin.openingAngle = momA.Angle(momB);
+
+  TLorentzVector qStar = pA - pB;
+  TLorentzVector pair = pA + pB;
+  qStar.Boost(-pair.BoostVector());
+  TLorentzVector pAStar = pA;
+  TLorentzVector pBStar = pB;
+  pAStar.Boost(-pair.BoostVector());
+  pBStar.Boost(-pair.BoostVector());
+  const Double_t phiA = TMath::ATan2(pAStar.Vect().Y(), pAStar.Vect().X());
+  const Double_t phiB = TMath::ATan2(pBStar.Vect().Y(), pBStar.Vect().X());
+  Double_t dPhiStar = phiA - phiB;
+  while (dPhiStar > TMath::Pi()) dPhiStar -= 2.0 * TMath::Pi();
+  while (dPhiStar < -TMath::Pi()) dPhiStar += 2.0 * TMath::Pi();
+  kin.deltaPhiStar = TMath::Abs(dPhiStar);
+  return kin;
+}
+
+void StK0XiFxtFemtoMaker::FillPairProximityQa(HistManager* hm, Bool_t sameEvent, const char* suffix,
+                                              const PairKinematics& kin, Int_t cent9, Double_t w) const {
+  if (!hm || !suffix) return;
+  const char* seMe = sameEvent ? "SE" : "ME";
+  TString hDeltaPhiStar = TString::Format("hDeltaPhiStar%s_%s%s", seMe, kChannel, suffix);
+  TString hDeltaEta = TString::Format("hDeltaEta%s_%s%s", seMe, kChannel, suffix);
+  TString hDeltaPhiLab = TString::Format("hDeltaPhiLab%s_%s%s", seMe, kChannel, suffix);
+  TString hOpeningAngle = TString::Format("hOpeningAngle%s_%s%s", seMe, kChannel, suffix);
+  hm->Fill(hDeltaPhiStar.Data(), kin.deltaPhiStar, w);
+  hm->Fill(hDeltaEta.Data(), kin.deltaEta, w);
+  hm->Fill(hDeltaPhiLab.Data(), kin.deltaPhiLab, w);
+  hm->Fill(hOpeningAngle.Data(), kin.openingAngle, w);
+  if (sameEvent) {
+    TString hEtaPhi = TString::Format("hDeltaEta_vs_DeltaPhiLabSE_%s%s", kChannel, suffix);
+    TH2* h2 = (TH2*)hm->Get(hEtaPhi.Data());
+    if (h2) h2->Fill(kin.deltaEta, kin.deltaPhiLab, w);
+    TString hKstarDphi = TString::Format("hKstar_vs_DeltaPhiStarSE_%s%s", kChannel, suffix);
+    TH2* h2k = (TH2*)hm->Get(hKstarDphi.Data());
+    if (h2k) h2k->Fill(kin.kstar, kin.deltaPhiStar, w);
+  }
+  (void)cent9;
+}
+
 TLorentzVector StK0XiFxtFemtoMaker::K0shortP4(const TVector3& p) const {
   TLorentzVector p4;
   p4.SetVectM(p, kK0shortMass);
@@ -345,8 +395,10 @@ void StK0XiFxtFemtoMaker::FillSameEventPairs() {
         if (m_histManager) m_histManager->Fill("hShareRejectSE", 0.5);
         continue;
       }
-      Double_t kstar = ComputeKStar(K0shortP4(k0.mom), XiP4(xi.mom));
+      const PairKinematics kin = ComputePairKinematics(k0.mom, xi.mom);
+      Double_t kstar = kin.kstar;
       FillKstarPairHists(m_histManager, kTRUE, suf, kstar, m_cent9, w);
+      FillPairProximityQa(m_histManager, kTRUE, suf, kin, m_cent9, w);
     }
   }
 }
@@ -426,8 +478,10 @@ void StK0XiFxtFemtoMaker::FillMixedEventPairs(Float_t vz, Int_t cent9) {
       if (m_histManager) m_histManager->Fill("hShareRejectME", 0.5);
       return;
     }
-    Double_t kstar = ComputeKStar(K0shortP4(k0->mom), XiP4(xi->mom));
+    const PairKinematics kin = ComputePairKinematics(k0->mom, xi->mom);
+    Double_t kstar = kin.kstar;
     FillKstarPairHists(m_histManager, kFALSE, suf, kstar, m_cent9, w);
+    FillPairProximityQa(m_histManager, kFALSE, suf, kin, m_cent9, w);
     ++filled;
   };
 

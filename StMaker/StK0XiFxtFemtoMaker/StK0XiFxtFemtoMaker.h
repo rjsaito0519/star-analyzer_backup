@@ -64,6 +64,14 @@ class StK0XiFxtFemtoMaker : public StMaker {
     std::vector<XiCandidate> xis;
   };
 
+  struct PairKinematics {
+    Double_t kstar;
+    Double_t deltaPhiStar;
+    Double_t deltaEta;
+    Double_t deltaPhiLab;
+    Double_t openingAngle;
+  };
+
   StPicoDstMaker* mPicoDstMaker;
   StPicoDst* mPicoDst;
   StK0shortFxtMaker* mK0shortMaker;
@@ -84,9 +92,13 @@ class StK0XiFxtFemtoMaker : public StMaker {
   std::map<Int_t, std::deque<FemtoMixingEvent> > m_mixingPool;
 
   Bool_t PassEventCuts(Float_t vz, Float_t vr, Int_t nTracks, Int_t refMult, Float_t vzVpd);
+  PairKinematics ComputePairKinematics(const TVector3& momA, const TVector3& momB) const;
   Double_t ComputeKStar(const TLorentzVector& pA, const TLorentzVector& pB) const;
   TLorentzVector K0shortP4(const TVector3& p) const;
   TLorentzVector XiP4(const TVector3& p) const;
+
+  void FillPairProximityQa(HistManager* hm, Bool_t sameEvent, const char* suffix,
+                           const PairKinematics& kin, Int_t cent9, Double_t w) const;
 
   // Provenance-aware: shared only if eventIndex and trackIndex both match (StFemtoMaker style).
   Bool_t ShareTracks(const K0Candidate& k0, const XiCandidate& xi) const;
