@@ -21,6 +21,10 @@ void LambdaCutConfig::SetDefaults() {
   nSigmaPion = 2.0;
   minDCAProton = 0.5;
   minDCAPion = 0.8;
+  nSigmaPionPos = 2.0;
+  nSigmaPionNeg = 2.0;
+  minDCAPionPos = 0.5;
+  minDCAPionNeg = 0.8;
   minDCABachelor = 0.3;
   maxDaughterDCA = 1.0;
   maxDcaLambdaDaughters = -1.0;
@@ -63,6 +67,33 @@ Bool_t LambdaCutConfig::ParseYamlFile(const Char_t* filename) {
   if (values.find("minDCAPion") != values.end()) {
     minDCAPion = YamlParser::ToDouble(values["minDCAPion"], minDCAPion);
   }
+
+  Bool_t hasNSigmaPionPos = kFALSE;
+  Bool_t hasNSigmaPionNeg = kFALSE;
+  Bool_t hasMinDCAPionPos = kFALSE;
+  Bool_t hasMinDCAPionNeg = kFALSE;
+  if (values.find("nSigmaPionPos") != values.end()) {
+    nSigmaPionPos = YamlParser::ToDouble(values["nSigmaPionPos"], nSigmaPionPos);
+    hasNSigmaPionPos = kTRUE;
+  }
+  if (values.find("nSigmaPionNeg") != values.end()) {
+    nSigmaPionNeg = YamlParser::ToDouble(values["nSigmaPionNeg"], nSigmaPionNeg);
+    hasNSigmaPionNeg = kTRUE;
+  }
+  if (values.find("minDCAPionPos") != values.end()) {
+    minDCAPionPos = YamlParser::ToDouble(values["minDCAPionPos"], minDCAPionPos);
+    hasMinDCAPionPos = kTRUE;
+  }
+  if (values.find("minDCAPionNeg") != values.end()) {
+    minDCAPionNeg = YamlParser::ToDouble(values["minDCAPionNeg"], minDCAPionNeg);
+    hasMinDCAPionNeg = kTRUE;
+  }
+  // Legacy K0 configs: pi+ borrowed proton keys; pi- used nSigmaPion/minDCAPion.
+  if (!hasNSigmaPionPos) nSigmaPionPos = nSigmaProton;
+  if (!hasNSigmaPionNeg) nSigmaPionNeg = nSigmaPion;
+  if (!hasMinDCAPionPos) minDCAPionPos = minDCAProton;
+  if (!hasMinDCAPionNeg) minDCAPionNeg = minDCAPion;
+
   if (values.find("minDCABachelor") != values.end()) {
     minDCABachelor = YamlParser::ToDouble(values["minDCABachelor"], minDCABachelor);
   }

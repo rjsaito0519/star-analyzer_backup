@@ -114,10 +114,9 @@ Bool_t StK0shortFxtMaker::PassPionPosCuts(StPicoTrack* trk, const TVector3& pVtx
   LambdaCutConfig& lam = ConfigManager::GetInstance().GetLambdaCuts();
   if (trk->nHitsFit() < lam.minNHitsFit) return kFALSE;
   if (trk->gMom().Pt() < lam.minPtDaughter) return kFALSE;
-  // Reuse proton nSigma / DCA fields for π⁺ (same convention as StK0shortMaker).
-  if (TMath::Abs(trk->nSigmaPion()) > lam.nSigmaProton) return kFALSE;
+  if (TMath::Abs(trk->nSigmaPion()) > lam.nSigmaPionPos) return kFALSE;
   Double_t dca = trk->gDCA(pVtx.X(), pVtx.Y(), pVtx.Z());
-  if (dca < lam.minDCAProton) return kFALSE;
+  if (dca < lam.minDCAPionPos) return kFALSE;
   return kTRUE;
 }
 
@@ -126,9 +125,9 @@ Bool_t StK0shortFxtMaker::PassPionNegCuts(StPicoTrack* trk, const TVector3& pVtx
   LambdaCutConfig& lam = ConfigManager::GetInstance().GetLambdaCuts();
   if (trk->nHitsFit() < lam.minNHitsFit) return kFALSE;
   if (trk->gMom().Pt() < lam.minPtDaughter) return kFALSE;
-  if (TMath::Abs(trk->nSigmaPion()) > lam.nSigmaPion) return kFALSE;
+  if (TMath::Abs(trk->nSigmaPion()) > lam.nSigmaPionNeg) return kFALSE;
   Double_t dca = trk->gDCA(pVtx.X(), pVtx.Y(), pVtx.Z());
-  if (dca < lam.minDCAPion) return kFALSE;
+  if (dca < lam.minDCAPionNeg) return kFALSE;
   return kTRUE;
 }
 

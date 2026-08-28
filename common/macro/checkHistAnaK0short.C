@@ -235,16 +235,16 @@ void checkHistAnaK0short(const Char_t* inputRootFile,
     h1->Draw();
     if (gConfigLoaded) {
       LambdaCutConfig& lam = ConfigManager::GetInstance().GetLambdaCuts();
-      drawCutLine1D(h1, lam.nSigmaProton);
-      drawCutLine1D(h1, -lam.nSigmaProton);
+      drawCutLine1D(h1, lam.nSigmaPionPos);
+      drawCutLine1D(h1, -lam.nSigmaPionPos);
     }
   }
   c1->cd(8); h1 = (TH1*)fin->Get("hNSigmaPionNeg"); if (h1) {
     h1->Draw();
     if (gConfigLoaded) {
       LambdaCutConfig& lam = ConfigManager::GetInstance().GetLambdaCuts();
-      drawCutLine1D(h1, lam.nSigmaPion);
-      drawCutLine1D(h1, -lam.nSigmaPion);
+      drawCutLine1D(h1, lam.nSigmaPionNeg);
+      drawCutLine1D(h1, -lam.nSigmaPionNeg);
     }
   }
   c1->cd(9); h2 = (TH2*)fin->Get("hK0short_InvMass_vs_Pt"); if (h2) h2->Draw("colz");

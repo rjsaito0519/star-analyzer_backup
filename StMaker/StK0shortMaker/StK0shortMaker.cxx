@@ -105,10 +105,9 @@ Bool_t StK0shortMaker::PassEventCuts(Int_t nTracks) {
 Bool_t StK0shortMaker::PassPionPosCuts(StPicoTrack* trk, const TVector3& pVtx) {
   if (!trk || trk->charge() <= 0) return kFALSE;
   LambdaCutConfig& lam = ConfigManager::GetInstance().GetLambdaCuts();
-  // Reuse the proton fields for the positive pion track
-  if (TMath::Abs(trk->nSigmaPion()) > lam.nSigmaProton) return kFALSE;
+  if (TMath::Abs(trk->nSigmaPion()) > lam.nSigmaPionPos) return kFALSE;
   Double_t dca = trk->gDCA(pVtx.X(), pVtx.Y(), pVtx.Z());
-  if (dca < lam.minDCAProton) return kFALSE;
+  if (dca < lam.minDCAPionPos) return kFALSE;
   return kTRUE;
 }
 
@@ -116,9 +115,9 @@ Bool_t StK0shortMaker::PassPionPosCuts(StPicoTrack* trk, const TVector3& pVtx) {
 Bool_t StK0shortMaker::PassPionNegCuts(StPicoTrack* trk, const TVector3& pVtx) {
   if (!trk || trk->charge() >= 0) return kFALSE;
   LambdaCutConfig& lam = ConfigManager::GetInstance().GetLambdaCuts();
-  if (TMath::Abs(trk->nSigmaPion()) > lam.nSigmaPion) return kFALSE;
+  if (TMath::Abs(trk->nSigmaPion()) > lam.nSigmaPionNeg) return kFALSE;
   Double_t dca = trk->gDCA(pVtx.X(), pVtx.Y(), pVtx.Z());
-  if (dca < lam.minDCAPion) return kFALSE;
+  if (dca < lam.minDCAPionNeg) return kFALSE;
   return kTRUE;
 }
 

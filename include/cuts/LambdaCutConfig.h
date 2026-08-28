@@ -12,7 +12,14 @@ public:
   Double_t nSigmaProton;
   Double_t nSigmaPion;
   Double_t minDCAProton;   // min DCA to PV for proton (reject primaries)
-  Double_t minDCAPion;     // min DCA to PV for pion
+  Double_t minDCAPion;     // min DCA to PV for Lambda pion (pi-)
+
+  // K0s (pi+ pi-) daughter cuts — StK0shortMaker / StK0shortFxtMaker only.
+  // YAML may omit these; ParseYamlFile falls back to legacy proton/pion keys above.
+  Double_t nSigmaPionPos;
+  Double_t nSigmaPionNeg;
+  Double_t minDCAPionPos;
+  Double_t minDCAPionNeg;
   Double_t maxDaughterDCA;   // max DCA between p and pi- at V0 (legacy / fallback)
   Double_t maxDcaLambdaDaughters;  // max DCA between proton and Lambda pion (cm); <=0 => maxDaughterDCA
   Double_t maxDcaLambdaBachelor;   // max DCA between Lambda and bachelor pion (cm); <=0 => maxDaughterDCA
