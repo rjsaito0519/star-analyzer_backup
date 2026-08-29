@@ -349,13 +349,29 @@ Int_t StXiFxtMaker::Make() {
         Double_t sXi = hXi.pathLength(pVtxThree);
         Double_t dcaXiToPV = (hXi.at(sXi) - pVtxThree).mag();
 
-        if (dcaXiToPV > lam.maxDCAV0) continue;
-
         TVector3 flightXi = v1 - pVtx;
         Double_t decayLength = flightXi.Mag();
-        if (decayLength < lam.minDecayLengthXi) continue;
-
         Double_t cosPointXi = flightXi.Dot(momXi) / (decayLength * momXi.Mag() + 1e-10);
+
+        TVector3 pBach = momXi - pLam;
+        TLorentzVector lBach;
+        lBach.SetVectM(pBach, kPionMass);
+        TLorentzVector lLamFixed;
+        lLamFixed.SetVectM(pLam, kLambdaMass);
+        TLorentzVector lXi = lLamFixed + lBach;
+        Double_t invMass = lXi.M();
+        Double_t rapidity = lXi.Rapidity();
+
+        // Pre-topology: fill before DCA / cos / L / L-order / fake-Lambda veto
+        if (m_histManager) {
+          m_histManager->Fill("hXi_InvMass_preTopo", invMass);
+          m_histManager->Fill("hXi_InvMass_vs_DCAV0_preTopo", dcaXiToPV, invMass);
+          m_histManager->Fill("hXi_InvMass_vs_CosPointing_preTopo", cosPointXi, invMass);
+          m_histManager->Fill("hXi_InvMass_vs_DecayLength_preTopo", decayLength, invMass);
+        }
+
+        if (dcaXiToPV > lam.maxDCAV0) continue;
+        if (decayLength < lam.minDecayLengthXi) continue;
         if (cosPointXi < lam.minCosPointing) continue;
 
         if (pathLengthLam >= 0.0) continue;
@@ -366,7 +382,6 @@ Int_t StXiFxtMaker::Make() {
         }
         if (lam.requireDecayLengthOrder && decayLength >= decayLengthLam) continue;
 
-        TVector3 pBach = momXi - pLam;
         TLorentzVector lFakeP;
         TLorentzVector lFakePi;
         lFakeP.SetVectM(pBach, kProtonMass);
@@ -379,14 +394,6 @@ Int_t StXiFxtMaker::Make() {
             TMath::Abs(mFake - lam.fakeLambdaMean) < lam.fakeLambdaWindow) {
           continue;
         }
-
-        TLorentzVector lBach;
-        lBach.SetVectM(pBach, kPionMass);
-        TLorentzVector lLamFixed;
-        lLamFixed.SetVectM(pLam, kLambdaMass);
-        TLorentzVector lXi = lLamFixed + lBach;
-        Double_t invMass = lXi.M();
-        Double_t rapidity = lXi.Rapidity();
 
         if (m_histManager) {
           m_histManager->Fill("hXi_InvMass", invMass);

@@ -47,6 +47,74 @@ static void drawCutLine1D(TH1* h, Double_t x, Int_t color = kRed, Int_t style = 
   l->Draw("same");
 }
 
+// Project TH2 (x=topology, y=InvMass) onto x for a mass window; returns owned clone (may be empty).
+static TH1D* projectTopoVsMass(TH2* h2, Double_t mLo, Double_t mHi, const char* name) {
+  if (!h2) return 0;
+  Int_t y1 = h2->GetYaxis()->FindBin(mLo);
+  Int_t y2 = h2->GetYaxis()->FindBin(mHi);
+  if (y2 < y1) {
+    Int_t tmp = y1;
+    y1 = y2;
+    y2 = tmp;
+  }
+  TH1D* proj = h2->ProjectionX(name, y1, y2, "e");
+  if (!proj) return 0;
+  proj->SetDirectory(0);
+  return proj;
+}
+
+static void drawSignalVsSideband(TH2* h2, Double_t cutX, Bool_t /*cutIsMax*/,
+                                 const char* title, const char* tag) {
+  if (!h2 || !gPad) return;
+  const Double_t kXiMass = 1.32171;
+  const Double_t sigHalf = 0.015;
+  const Double_t sbInner = 0.025;
+  const Double_t sbOuter = 0.040;
+
+  TString nSig = TString::Format("hPreTopo_sig_%s", tag);
+  TString nSbL = TString::Format("hPreTopo_sbL_%s", tag);
+  TString nSbR = TString::Format("hPreTopo_sbR_%s", tag);
+  TString nSb = TString::Format("hPreTopo_sb_%s", tag);
+
+  TH1D* hSig = projectTopoVsMass(h2, kXiMass - sigHalf, kXiMass + sigHalf, nSig.Data());
+  TH1D* hSbL = projectTopoVsMass(h2, kXiMass - sbOuter, kXiMass - sbInner, nSbL.Data());
+  TH1D* hSbR = projectTopoVsMass(h2, kXiMass + sbInner, kXiMass + sbOuter, nSbR.Data());
+  if (!hSig) return;
+
+  TH1D* hSbSum = (TH1D*)hSig->Clone(nSb.Data());
+  hSbSum->SetDirectory(0);
+  hSbSum->Reset();
+  if (hSbL) hSbSum->Add(hSbL);
+  if (hSbR) hSbSum->Add(hSbR);
+
+  Double_t iSig = hSig->Integral();
+  Double_t iSb = hSbSum->Integral();
+  if (iSig > 0.0) hSig->Scale(1.0 / iSig);
+  if (iSb > 0.0) hSbSum->Scale(1.0 / iSb);
+
+  hSig->SetLineColor(kBlue + 1);
+  hSig->SetLineWidth(2);
+  hSbSum->SetLineColor(kGray + 2);
+  hSbSum->SetLineWidth(2);
+  hSig->SetTitle(title);
+  hSig->GetYaxis()->SetTitle("normalized counts");
+  Double_t ymax = TMath::Max(hSig->GetMaximum(), hSbSum->GetMaximum()) * 1.15;
+  if (ymax <= 0.0) ymax = 1.0;
+  hSig->SetMaximum(ymax);
+  hSig->Draw("hist");
+  hSbSum->Draw("hist same");
+  if (cutX > -900.0) drawCutLine1D(hSig, cutX, kRed, 2);
+  TLatex* leg = new TLatex();
+  leg->SetNDC(kTRUE);
+  leg->SetTextSize(0.035);
+  leg->SetTextColor(kBlue + 1);
+  leg->DrawLatex(0.45, 0.88, Form("peak |M-%.4f|<%.0f MeV", kXiMass, sigHalf * 1000.0));
+  leg->SetTextColor(kGray + 2);
+  leg->DrawLatex(0.45, 0.83, Form("SB %.0f-%.0f MeV", sbInner * 1000.0, sbOuter * 1000.0));
+  delete hSbL;
+  delete hSbR;
+}
+
 static void drawCent9ConventionNote() {
   if (!gPad) return;
   TLatex* note = new TLatex();
@@ -144,6 +212,7 @@ void checkHistAnaXi(const Char_t* inputRootFile,
   TString note = "Check histograms from run_anaXi.C (StXiMaker output).\n";
   note += "Xi- Cascade (Lambda + pi-) helix/line reconstruction.\n";
   note += "Centrality QA: Pages 1b-1d when centrality is enabled in mainconf.\n";
+  note += "Page 4: pre-topology InvMass vs DCA/cos/L; signal vs sideband projections.\n";
 
   PdfHeader::MakePdfHeaderPage(pdfName, "checkHistAnaXi.C", inputs, note.Data(), true, anaName);
 
@@ -245,6 +314,43 @@ void checkHistAnaXi(const Char_t* inputRootFile,
   c1->cd(3); h1 = (TH1*)fin->Get("hNSigmaPionLambda"); if (h1) h1->Draw();
   c1->cd(4); h1 = (TH1*)fin->Get("hNSigmaPionBachelor"); if (h1) h1->Draw();
   c1->Print(pdfName);
+
+  // Page 4: Pre-topology mass vs topology + signal/sideband projections
+  {
+    Double_t cutDca = -999.0;
+    Double_t cutCos = -999.0;
+    Double_t cutL = -999.0;
+    if (gConfigLoaded) {
+      LambdaCutConfig& lam = ConfigManager::GetInstance().GetLambdaCuts();
+      cutDca = lam.maxDCAV0;
+      cutCos = lam.minCosPointing;
+      cutL = lam.minDecayLengthXi;
+    }
+    c1->Clear();
+    c1->Divide(3, 3);
+    c1->cd(1); h1 = (TH1*)fin->Get("hXi_InvMass_preTopo"); if (h1) h1->Draw();
+    c1->cd(2); h2 = (TH2*)fin->Get("hXi_InvMass_vs_DCAV0_preTopo"); if (h2) h2->Draw("colz");
+    c1->cd(3); h2 = (TH2*)fin->Get("hXi_InvMass_vs_CosPointing_preTopo"); if (h2) h2->Draw("colz");
+    c1->cd(4); h2 = (TH2*)fin->Get("hXi_InvMass_vs_DecayLength_preTopo"); if (h2) h2->Draw("colz");
+    c1->cd(5);
+    h2 = (TH2*)fin->Get("hXi_InvMass_vs_DCAV0_preTopo");
+    drawSignalVsSideband(h2, cutDca, kTRUE, "DCA(#Xi,PV) preTopo;DCA [cm];norm.", "dca");
+    c1->cd(6);
+    h2 = (TH2*)fin->Get("hXi_InvMass_vs_CosPointing_preTopo");
+    drawSignalVsSideband(h2, cutCos, kFALSE, "cos(#theta) preTopo;cos(#theta);norm.", "cos");
+    c1->cd(7);
+    h2 = (TH2*)fin->Get("hXi_InvMass_vs_DecayLength_preTopo");
+    drawSignalVsSideband(h2, cutL, kFALSE, "L_{#Xi} preTopo;L_{#Xi} [cm];norm.", "len");
+    c1->cd(8);
+    TLatex* tip = new TLatex();
+    tip->SetNDC(kTRUE);
+    tip->SetTextSize(0.04);
+    tip->DrawLatex(0.12, 0.70, "Blue: mass peak window");
+    tip->DrawLatex(0.12, 0.60, "Gray: sidebands");
+    tip->DrawLatex(0.12, 0.50, "Red: YAML topology cut");
+    tip->DrawLatex(0.12, 0.35, "Filled before DCA/cos/L cuts");
+    c1->Print(pdfName);
+  }
 
   fin->Close();
   PdfHeader::ClosePdf(pdfName);
