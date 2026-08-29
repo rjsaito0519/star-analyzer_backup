@@ -152,6 +152,11 @@ Bool_t StXiFxtMaker::PassProtonCuts(StPicoTrack* trk, const TVector3& pVtx) {
   if (!trk || trk->charge() <= 0) return kFALSE;
   LambdaCutConfig& lam = ConfigManager::GetInstance().GetLambdaCuts();
   if (trk->nHitsFit() < lam.minNHitsFit) return kFALSE;
+  if (lam.minNHitsRatio > 0.0 &&
+      (trk->nHitsMax() <= 0 ||
+       (Double_t)trk->nHitsFit() / (Double_t)trk->nHitsMax() < lam.minNHitsRatio)) {
+    return kFALSE;
+  }
   if (trk->gMom().Pt() < lam.minPtDaughter) return kFALSE;
   if (TMath::Abs(trk->nSigmaProton()) > lam.nSigmaProton) return kFALSE;
   Double_t dca = trk->gDCA(pVtx.X(), pVtx.Y(), pVtx.Z());
@@ -163,6 +168,11 @@ Bool_t StXiFxtMaker::PassLambdaPionCuts(StPicoTrack* trk, const TVector3& pVtx) 
   if (!trk || trk->charge() >= 0) return kFALSE;
   LambdaCutConfig& lam = ConfigManager::GetInstance().GetLambdaCuts();
   if (trk->nHitsFit() < lam.minNHitsFit) return kFALSE;
+  if (lam.minNHitsRatio > 0.0 &&
+      (trk->nHitsMax() <= 0 ||
+       (Double_t)trk->nHitsFit() / (Double_t)trk->nHitsMax() < lam.minNHitsRatio)) {
+    return kFALSE;
+  }
   if (trk->gMom().Pt() < lam.minPtDaughter) return kFALSE;
   if (TMath::Abs(trk->nSigmaPion()) > lam.nSigmaPion) return kFALSE;
   Double_t dca = trk->gDCA(pVtx.X(), pVtx.Y(), pVtx.Z());
@@ -174,6 +184,11 @@ Bool_t StXiFxtMaker::PassBachelorPionCuts(StPicoTrack* trk, const TVector3& pVtx
   if (!trk || trk->charge() >= 0) return kFALSE;
   LambdaCutConfig& lam = ConfigManager::GetInstance().GetLambdaCuts();
   if (trk->nHitsFit() < lam.minNHitsFit) return kFALSE;
+  if (lam.minNHitsRatio > 0.0 &&
+      (trk->nHitsMax() <= 0 ||
+       (Double_t)trk->nHitsFit() / (Double_t)trk->nHitsMax() < lam.minNHitsRatio)) {
+    return kFALSE;
+  }
   if (trk->gMom().Pt() < lam.minPtDaughter) return kFALSE;
   if (TMath::Abs(trk->nSigmaPion()) > lam.nSigmaPion) return kFALSE;
   Double_t dca = trk->gDCA(pVtx.X(), pVtx.Y(), pVtx.Z());
