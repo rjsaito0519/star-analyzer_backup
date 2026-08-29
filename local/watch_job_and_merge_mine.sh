@@ -291,23 +291,31 @@ PY
 }
 
 resolve_checkhist_script() {
-  # anaName like auau19_anaXi or auau3p9fxt_anaXi_tight_tune → try exact then AnaXi / AnaPhi fallbacks
-  local suffix
+  # anaName like auau19_anaXi or auau3p9fxt_anaXi_tight_tune / anaK0XiFemto_soft_B
+  local suffix base cand
   suffix=$(echo "${ANA_NAME#*_}" | sed 's/^[a-z]/\U&/')
-  local cand="$PROJECT_ROOT/script/singularity_checkHist${suffix}.sh"
+  cand="$PROJECT_ROOT/script/singularity_checkHist${suffix}.sh"
   if [[ -x "$cand" ]]; then
     echo "$cand"
     return 0
   fi
-  # Strip tune / loose / tight / test suffixes after AnaXi / AnaPhi / ...
-  local base
-  base=$(echo "$suffix" | sed -E 's/_(loose|tight|tune|test|temp).*//I')
+  # Strip campaign suffixes (soft_B, noStep2, cos998, loose/tight/tune, ...)
+  base=$(echo "$suffix" | sed -E 's/_(loose|tight|tune|test|temp|soft_B|noStep2|cos998)([_].*)?$//I')
+  base=$(echo "$base" | sed -E 's/_(loose|tight|tune|test|temp|soft_B|noStep2|cos998).*//I')
   cand="$PROJECT_ROOT/script/singularity_checkHist${base}.sh"
   if [[ -x "$cand" ]]; then
     echo "$cand"
     return 0
   fi
-  # Last resort: known FXT Xi QA script
+  # K0–Xi FXT femto script is named AnaK0XiFxtFemto (has Fxt); anaName often omits Fxt.
+  if [[ "$ANA_NAME" == *anaK0Xi* ]]; then
+    cand="$PROJECT_ROOT/script/singularity_checkHistAnaK0XiFxtFemto.sh"
+    if [[ -x "$cand" ]]; then
+      echo "$cand"
+      return 0
+    fi
+  fi
+  # Plain Ξ (avoid matching anaK0Xi via a broad *anaXi* if ordering wrong — K0 handled above)
   if [[ "$ANA_NAME" == *anaXi* ]]; then
     cand="$PROJECT_ROOT/script/singularity_checkHistAnaXi.sh"
     if [[ -x "$cand" ]]; then
@@ -642,9 +650,16 @@ ROOTFILE_DIR="$(helper --rootfile-dir-from-joblist "$JOBLIST")"
 OUTPUT_STEM="$(helper --output-stem-from-joblist "$JOBLIST")"
 
 exec >> "$WATCH_LOG" 2>&1
-log_msg "personal watch-merge started anaName=$ANA_NAME jobid=$JOBID expectedSubjobs=$EXPECTED"
+# ERR trap after exec so failures land in the watch log.
+trap 'rc=$?; log_msg "FATAL: set -e exit rc=$rc line=$LINENO cmd=$BASH_COMMAND"; rm -f "$PID_FILE"; exit "$rc"' ERR
+log_msg "personal watch-merge started anaName=$ANA_NAME jobid=$JOBID expectedSubjobs=$EXPECTED pid=$$"
 log_msg "pollSec=$POLL_SEC progressSec=$PROGRESS_SEC timeoutSec=$TIMEOUT_SEC"
 log_msg "scratchBase=$SCRATCH_BASE rootfileDir=$ROOTFILE_DIR mergeOutput=$MERGE_OUTPUT"
+if ch=$(resolve_checkhist_script 2>/dev/null); then
+  log_msg "checkHist script: $ch"
+else
+  log_msg "WARNING: no checkHist script resolved for anaName=$ANA_NAME (progress PDF will skip)"
+fi
 
 EXTRA_JSON="$(SCRATCH_BASE="$SCRATCH_BASE" "$PYTHON" -c 'import json,os; print(json.dumps({"scratchBase": os.environ["SCRATCH_BASE"], "watcher": "mine"}))')"
 
@@ -670,6 +685,7 @@ deadline=$(( $(date +%s) + TIMEOUT_SEC ))
 last_progress_at=0
 stable_count=-1
 stable_polls=0
+found_prev=0
 CONDOR_QUERY_OK=0
 CURR_CONDOR_IDS=()
 NEWLY_LEFT=()
@@ -689,9 +705,15 @@ while true; do
   fi
 
   found="$(helper --rootfile-dir-from-joblist "$JOBLIST" --count-subjob-roots \
-    --watch-merge-jobid "$JOBID")"
+    --watch-merge-jobid "$JOBID" 2>/dev/null || echo -1)"
+  if [[ "$found" == "-1" || -z "$found" ]]; then
+    log_msg "WARNING: count-subjob-roots failed; keep previous found=${found_prev:-0}"
+    found="${found_prev:-0}"
+  else
+    found_prev="$found"
+  fi
 
-  qraw="$(query_condor_procs)"
+  qraw="$(query_condor_procs || true)"
   CURR_CONDOR_IDS=()
   CONDOR_QUERY_OK=0
   condor_line="unavailable (ROOT-count fallback)"
@@ -711,22 +733,28 @@ while true; do
   log_msg "poll found=$found/$EXPECTED condorOk=$CONDOR_QUERY_OK condorRemain=${#CURR_CONDOR_IDS[@]} newlyLeft=$delta_n stablePolls=$stable_polls"
 
   if (( delta_n > 0 )); then
-    discord_upsert "$(build_progress_text progress "$found" "$condor_line" "$newly_sample")"
+    discord_upsert "$(build_progress_text progress "$found" "$condor_line" "$newly_sample")" || true
   fi
 
   save_condor_set "${CURR_CONDOR_IDS[@]+"${CURR_CONDOR_IDS[@]}"}"
   PREV_CONDOR_IDS=("${CURR_CONDOR_IDS[@]+"${CURR_CONDOR_IDS[@]}"}")
 
-  # Hourly progress hadd + PDF (non-destructive).
+  # Periodic progress hadd + PDF (non-destructive). First loop fires immediately
+  # because last_progress_at starts at 0 (now - 0 >= PROGRESS_SEC).
   if (( now - last_progress_at >= PROGRESS_SEC )); then
     last_progress_at=$now
     attach=""
     if run_progress_hadd; then
       if run_checkhist_pdf "$PROGRESS_DIR/partial_merge.root" "$PROGRESS_PDF"; then
         attach="$PROGRESS_PDF"
+        log_msg "progress PDF ready: $attach"
+      else
+        log_msg "WARNING: progress checkHist/PDF failed (text notify only)"
       fi
+    else
+      log_msg "progress hadd skipped or failed this cycle"
     fi
-    discord_upsert "$(build_progress_text progress "$found" "$condor_line" "$newly_sample")" ${attach:+"$attach"}
+    discord_upsert "$(build_progress_text progress "$found" "$condor_line" "$newly_sample")" ${attach:+"$attach"} || true
   fi
 
   ready=0

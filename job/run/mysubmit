@@ -172,9 +172,37 @@ done
 [[ -f "$RUNMETA" ]] || die "runmeta not found after submit: $RUNMETA"
 
 WATCH_LOG="$FINAL_DIR/watch/watchmerge_mine.log"
-nohup env STAR_ANALYZER_SCRATCH="$VOLATILE" "$WATCHER" --runmeta "$RUNMETA" >> "$WATCH_LOG" 2>&1 &
-watch_pid=$!
-echo "mysubmit: personal watcher started (PID $watch_pid)"
+# Detach from the launching shell/process group (Cursor agent shells often
+# SIGTERM children on exit; plain nohup is not enough). setsid + nohup.
+WATCH_ENV=(env STAR_ANALYZER_SCRATCH="$VOLATILE")
+# Optional: WATCH_MERGE_PROGRESS_SEC / WATCH_MERGE_POLL_SEC inherited if set.
+if command -v setsid >/dev/null 2>&1; then
+  setsid -f "${WATCH_ENV[@]}" "$WATCHER" --runmeta "$RUNMETA" \
+    ${WATCH_MERGE_PROGRESS_SEC:+--progress-sec "$WATCH_MERGE_PROGRESS_SEC"} \
+    ${WATCH_MERGE_POLL_SEC:+--poll-sec "$WATCH_MERGE_POLL_SEC"} \
+    >> "$WATCH_LOG" 2>&1
+  # setsid -f does not print child pid reliably on all distros; read pid file shortly.
+  watch_pid=""
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    if [[ -f "$FINAL_DIR/watch/watchmerge_mine.pid" ]]; then
+      watch_pid=$(tr -d '[:space:]' < "$FINAL_DIR/watch/watchmerge_mine.pid" || true)
+      [[ -n "$watch_pid" ]] && kill -0 "$watch_pid" 2>/dev/null && break
+    fi
+    sleep 0.3
+  done
+else
+  nohup "${WATCH_ENV[@]}" "$WATCHER" --runmeta "$RUNMETA" \
+    ${WATCH_MERGE_PROGRESS_SEC:+--progress-sec "$WATCH_MERGE_PROGRESS_SEC"} \
+    ${WATCH_MERGE_POLL_SEC:+--poll-sec "$WATCH_MERGE_POLL_SEC"} \
+    >> "$WATCH_LOG" 2>&1 &
+  watch_pid=$!
+fi
+echo "mysubmit: personal watcher started (PID ${watch_pid:-unknown})"
 echo "mysubmit: watcher log: $WATCH_LOG"
+if [[ -n "${watch_pid:-}" ]] && kill -0 "$watch_pid" 2>/dev/null; then
+  echo "mysubmit: watcher alive after spawn"
+else
+  echo "mysubmit: WARNING: watcher may not be running; check $WATCH_LOG" >&2
+fi
 
 exit "$submit_rc"

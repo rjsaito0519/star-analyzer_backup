@@ -58,9 +58,14 @@ Repo-root `log/` / `err/` were the **old** SUMS stdout/stderr location; they may
 ## Behaviour
 
 - Condor polling filters **this 32-hex jobid only** (safe with concurrent submits).
-- Progress text updates on Condor δ; hourly scratch hadd + PDF; Discord **edits one message**.
+- Progress text updates on Condor δ; periodic scratch hadd + PDF (default hourly;
+  override `--progress-sec` / `WATCH_MERGE_PROGRESS_SEC`); Discord **edits one message**.
+- `mysubmit` launches the watcher via **`setsid`** (detached session) so IDE/agent
+  shell exit does not SIGTERM it.
 - Final merge uses official `script/merge_root_files.csh` into `rootfile/` when Condor is empty for that jobid and ROOT counts settle (or ROOT-count fallback if `condor_q` fails).
 - PDF/Discord failures are soft (logged; watcher continues).
+- checkHist resolution maps `*anaK0Xi*` → `singularity_checkHistAnaK0XiFxtFemto.sh`
+  and `*anaXi*` → `singularity_checkHistAnaXi.sh` (campaign suffixes stripped).
 
 ## Dry run / checks
 

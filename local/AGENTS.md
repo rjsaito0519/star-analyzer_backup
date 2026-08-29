@@ -51,8 +51,13 @@ repo-`scratch/` job artifacts for **this user’s personal workflow**.
 
 ```bash
 ./local/watch_job_and_merge_mine.sh \
-  --runmeta job/run/runmeta/runmeta_<anaName>_<jobid>.json
+  --runmeta job/run/runmeta/runmeta_<anaName>_<jobid>.json \
+  --progress-sec 1800
 ```
+
+`mysubmit` starts the watcher with `setsid` (fallback `nohup`) so Cursor/agent
+shell teardown does not kill it. Optional env: `WATCH_MERGE_PROGRESS_SEC`,
+`WATCH_MERGE_POLL_SEC`.
 
 ## ACLiC build dir (trial: anaKXiFemto)
 
