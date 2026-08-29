@@ -368,6 +368,11 @@ Int_t StXiFxtMaker::Make() {
         Double_t decayLength = flightXi.Mag();
         Double_t cosPointXi = flightXi.Dot(momXi) / (decayLength * momXi.Mag() + 1e-10);
 
+        // Neutral Lambda line (v2, pLam): DCA to PV (primary-Lambda veto for cascade)
+        TVector3 dirLam = pLam.Unit();
+        TVector3 rLamPv = v2 - pVtx;
+        Double_t dcaLamToPV = (rLamPv - rLamPv.Dot(dirLam) * dirLam).Mag();
+
         TVector3 pBach = momXi - pLam;
         TLorentzVector lBach;
         lBach.SetVectM(pBach, kPionMass);
@@ -377,17 +382,19 @@ Int_t StXiFxtMaker::Make() {
         Double_t invMass = lXi.M();
         Double_t rapidity = lXi.Rapidity();
 
-        // Pre-topology: fill before DCA / cos / L / L-order / fake-Lambda veto
+        // Pre-topology: fill before DCA / cos / L / DCA(Λ,PV) / L-order / fake-Λ
         if (m_histManager) {
           m_histManager->Fill("hXi_InvMass_preTopo", invMass);
           m_histManager->Fill("hXi_InvMass_vs_DCAV0_preTopo", dcaXiToPV, invMass);
           m_histManager->Fill("hXi_InvMass_vs_CosPointing_preTopo", cosPointXi, invMass);
           m_histManager->Fill("hXi_InvMass_vs_DecayLength_preTopo", decayLength, invMass);
+          m_histManager->Fill("hXi_InvMass_vs_DcaLambdaPV_preTopo", dcaLamToPV, invMass);
         }
 
         if (dcaXiToPV > lam.maxDCAV0) continue;
         if (decayLength < lam.minDecayLengthXi) continue;
         if (cosPointXi < lam.minCosPointing) continue;
+        if (lam.minDcaLambdaToPV > 0.0 && dcaLamToPV < lam.minDcaLambdaToPV) continue;
 
         if (pathLengthLam >= 0.0) continue;
 
@@ -418,6 +425,7 @@ Int_t StXiFxtMaker::Make() {
           m_histManager->Fill("hDCA12_Lambda", dca12_lam);
           m_histManager->Fill("hDCA_Cascade", dcaCascade);
           m_histManager->Fill("hDCAV0_Xi", dcaXiToPV);
+          m_histManager->Fill("hDcaLambdaToPV", dcaLamToPV);
           m_histManager->Fill("hCosPointing_Xi", cosPointXi);
           m_histManager->Fill("hNSigmaProton", trkP->nSigmaProton());
           m_histManager->Fill("hNSigmaPionLambda", trkPi->nSigmaPion());

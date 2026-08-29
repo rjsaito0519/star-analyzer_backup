@@ -27,6 +27,9 @@ public:
   Double_t minCosPointing;   // min cos(pointing angle)
   Double_t maxPathLength;    // max |path length| for helix (e.g. 100)
   Double_t minDCABachelor;   // min DCA to PV for Xi bachelor pion
+  // Min DCA of reconstructed Lambda line (v2, pLam) to PV (cm).
+  // Secondary Lambda from Xi should miss PV; <=0 => cut off.
+  Double_t minDcaLambdaToPV;
   Double_t minPtDaughter;    // min pT of p / Lambda-pi / bachelor (GeV/c)
   Double_t minDecayLengthXi; // min Xi flight distance from PV (cm)
   Double_t lambdaMassWindow; // |M_pπ - PDG Λ|; fill QA before this cut

@@ -32,6 +32,7 @@ void LambdaCutConfig::SetDefaults() {
   maxDCAV0 = 1.0;
   minCosPointing = 0.995;
   maxPathLength = 100.0;
+  minDcaLambdaToPV = -1.0;
   minPtDaughter = 0.15;
   minDecayLengthXi = 0.0;
   lambdaMassWindow = 0.006;
@@ -96,6 +97,9 @@ Bool_t LambdaCutConfig::ParseYamlFile(const Char_t* filename) {
 
   if (values.find("minDCABachelor") != values.end()) {
     minDCABachelor = YamlParser::ToDouble(values["minDCABachelor"], minDCABachelor);
+  }
+  if (values.find("minDcaLambdaToPV") != values.end()) {
+    minDcaLambdaToPV = YamlParser::ToDouble(values["minDcaLambdaToPV"], minDcaLambdaToPV);
   }
   if (values.find("maxDaughterDCA") != values.end()) {
     maxDaughterDCA = YamlParser::ToDouble(values["maxDaughterDCA"], maxDaughterDCA);

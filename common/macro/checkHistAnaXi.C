@@ -212,7 +212,7 @@ void checkHistAnaXi(const Char_t* inputRootFile,
   TString note = "Check histograms from run_anaXi.C (StXiMaker output).\n";
   note += "Xi- Cascade (Lambda + pi-) helix/line reconstruction.\n";
   note += "Centrality QA: Pages 1b-1d when centrality is enabled in mainconf.\n";
-  note += "Page 4: pre-topology InvMass vs DCA/cos/L; signal vs sideband projections.\n";
+  note += "Page 4: pre-topology InvMass vs DCA/cos/L/DCA(#Lambda,PV); signal vs sideband.\n";
 
   PdfHeader::MakePdfHeaderPage(pdfName, "checkHistAnaXi.C", inputs, note.Data(), true, anaName);
 
@@ -320,11 +320,13 @@ void checkHistAnaXi(const Char_t* inputRootFile,
     Double_t cutDca = -999.0;
     Double_t cutCos = -999.0;
     Double_t cutL = -999.0;
+    Double_t cutLamPv = -999.0;
     if (gConfigLoaded) {
       LambdaCutConfig& lam = ConfigManager::GetInstance().GetLambdaCuts();
       cutDca = lam.maxDCAV0;
       cutCos = lam.minCosPointing;
       cutL = lam.minDecayLengthXi;
+      if (lam.minDcaLambdaToPV > 0.0) cutLamPv = lam.minDcaLambdaToPV;
     }
     c1->Clear();
     c1->Divide(3, 3);
@@ -341,14 +343,10 @@ void checkHistAnaXi(const Char_t* inputRootFile,
     c1->cd(7);
     h2 = (TH2*)fin->Get("hXi_InvMass_vs_DecayLength_preTopo");
     drawSignalVsSideband(h2, cutL, kFALSE, "L_{#Xi} preTopo;L_{#Xi} [cm];norm.", "len");
-    c1->cd(8);
-    TLatex* tip = new TLatex();
-    tip->SetNDC(kTRUE);
-    tip->SetTextSize(0.04);
-    tip->DrawLatex(0.12, 0.70, "Blue: mass peak window");
-    tip->DrawLatex(0.12, 0.60, "Gray: sidebands");
-    tip->DrawLatex(0.12, 0.50, "Red: YAML topology cut");
-    tip->DrawLatex(0.12, 0.35, "Filled before DCA/cos/L cuts");
+    c1->cd(8); h2 = (TH2*)fin->Get("hXi_InvMass_vs_DcaLambdaPV_preTopo"); if (h2) h2->Draw("colz");
+    c1->cd(9);
+    h2 = (TH2*)fin->Get("hXi_InvMass_vs_DcaLambdaPV_preTopo");
+    drawSignalVsSideband(h2, cutLamPv, kFALSE, "DCA(#Lambda,PV) preTopo;DCA [cm];norm.", "lampv");
     c1->Print(pdfName);
   }
 
