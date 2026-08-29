@@ -291,12 +291,29 @@ PY
 }
 
 resolve_checkhist_script() {
+  # anaName like auau19_anaXi or auau3p9fxt_anaXi_tight_tune → try exact then AnaXi / AnaPhi fallbacks
   local suffix
   suffix=$(echo "${ANA_NAME#*_}" | sed 's/^[a-z]/\U&/')
   local cand="$PROJECT_ROOT/script/singularity_checkHist${suffix}.sh"
   if [[ -x "$cand" ]]; then
     echo "$cand"
     return 0
+  fi
+  # Strip tune / loose / tight / test suffixes after AnaXi / AnaPhi / ...
+  local base
+  base=$(echo "$suffix" | sed -E 's/_(loose|tight|tune|test|temp).*//I')
+  cand="$PROJECT_ROOT/script/singularity_checkHist${base}.sh"
+  if [[ -x "$cand" ]]; then
+    echo "$cand"
+    return 0
+  fi
+  # Last resort: known FXT Xi QA script
+  if [[ "$ANA_NAME" == *anaXi* ]]; then
+    cand="$PROJECT_ROOT/script/singularity_checkHistAnaXi.sh"
+    if [[ -x "$cand" ]]; then
+      echo "$cand"
+      return 0
+    fi
   fi
   return 1
 }
