@@ -288,6 +288,10 @@ Int_t StK0shortFxtMaker::Make() {
   }
 
   // Same-event tracks already used by accepted Xi candidates (pico array index).
+  // skipK0DaughtersUsedByXi: omit them from K0 pion lists (legacy). When false,
+  // still count overlaps for QA; pair-level ShareTracks vetoes k* for that pair.
+  LambdaCutConfig& lamCuts = ConfigManager::GetInstance().GetLambdaCuts();
+  const Bool_t skipSharedWithXi = lamCuts.skipK0DaughtersUsedByXi;
   std::set<Int_t> xiUsed;
   if (mXiMaker) {
     const std::vector<Int_t>& pIds = mXiMaker->GetXiProtonIdList();
@@ -311,18 +315,14 @@ Int_t StK0shortFxtMaker::Make() {
     StPicoTrack* trk = mPicoDst->track(i);
     if (!trk) continue;
     if (PassPionPosCuts(trk, pVtx)) {
-      if (!xiUsed.empty() && xiUsed.count(i)) {
-        nSkippedShared++;
-      } else {
-        pionPosIdx.push_back(i);
-      }
+      const Bool_t usedByXi = !xiUsed.empty() && xiUsed.count(i);
+      if (usedByXi) nSkippedShared++;
+      if (!(usedByXi && skipSharedWithXi)) pionPosIdx.push_back(i);
     }
     if (PassPionNegCuts(trk, pVtx)) {
-      if (!xiUsed.empty() && xiUsed.count(i)) {
-        nSkippedShared++;
-      } else {
-        pionNegIdx.push_back(i);
-      }
+      const Bool_t usedByXi = !xiUsed.empty() && xiUsed.count(i);
+      if (usedByXi) nSkippedShared++;
+      if (!(usedByXi && skipSharedWithXi)) pionNegIdx.push_back(i);
     }
   }
   const Int_t nPionPosCand = (Int_t)pionPosIdx.size();

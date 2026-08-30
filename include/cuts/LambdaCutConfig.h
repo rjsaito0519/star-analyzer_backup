@@ -44,6 +44,10 @@ public:
   Int_t    minNHitsFit;      // min nHitsFit for daughter tracks
   Double_t minNHitsRatio;    // min nHitsFit/nHitsMax ratio (split track suppression)
 
+  // StK0shortFxtMaker: if true, omit pion candidates already used as Xi daughters.
+  // Pair-level ShareTracks in StK0XiFxtFemtoMaker is independent (k* veto).
+  Bool_t skipK0DaughtersUsedByXi;
+
   void SetDefaults();
 
 private:

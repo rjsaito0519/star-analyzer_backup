@@ -42,6 +42,7 @@ void LambdaCutConfig::SetDefaults() {
   fakeLambdaWindow = -1.0;
   minNHitsFit = 15;
   minNHitsRatio = 0.52;
+  skipK0DaughtersUsedByXi = kTRUE;
 }
 
 Bool_t LambdaCutConfig::LoadFromFile(const Char_t* filename) {
@@ -145,6 +146,10 @@ Bool_t LambdaCutConfig::ParseYamlFile(const Char_t* filename) {
   }
   if (values.find("minNHitsRatio") != values.end()) {
     minNHitsRatio = YamlParser::ToDouble(values["minNHitsRatio"], minNHitsRatio);
+  }
+  if (values.find("skipK0DaughtersUsedByXi") != values.end()) {
+    skipK0DaughtersUsedByXi =
+        YamlParser::ToBool(values["skipK0DaughtersUsedByXi"], skipK0DaughtersUsedByXi);
   }
 
   return kTRUE;
