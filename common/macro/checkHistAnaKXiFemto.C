@@ -231,6 +231,7 @@ void checkHistAnaKXiFemto(const Char_t* inputRootFile,
     }
   }
   if (anaName.IsNull()) anaName = "auau19_anaKXiFemto";
+  const Bool_t isFxt = anaName.Contains("fxt") || anaName.Contains("3p9");
 
   const FemtoConfig& fc = ConfigManager::GetInstance().GetFemtoConfig();
   const Double_t k0MassMin = fc.k0MassMin;
@@ -345,7 +346,8 @@ void checkHistAnaKXiFemto(const Char_t* inputRootFile,
   c1->cd(2);
   h1 = (TH1*)fin->Get("hK0short_Eta");
   if (hasEntries(h1)) {
-    h1->GetXaxis()->SetRangeUser(kEtaDrawMin, kEtaDrawMax);
+    if (isFxt) h1->GetXaxis()->SetRangeUser(kEtaDrawMin, kEtaDrawMax);
+    h1->SetMinimum(0);
     h1->Draw();
   }
   c1->cd(3);
@@ -358,7 +360,8 @@ void checkHistAnaKXiFemto(const Char_t* inputRootFile,
   c1->cd(4);
   h1 = (TH1*)fin->Get("hXi_Eta");
   if (hasEntries(h1)) {
-    h1->GetXaxis()->SetRangeUser(kEtaDrawMin, kEtaDrawMax);
+    if (isFxt) h1->GetXaxis()->SetRangeUser(kEtaDrawMin, kEtaDrawMax);
+    h1->SetMinimum(0);
     h1->Draw();
   }
   c1->Print(pdfName);
