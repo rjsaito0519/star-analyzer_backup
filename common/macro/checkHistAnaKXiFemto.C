@@ -14,7 +14,6 @@
 #include <TStyle.h>
 #include <TLatex.h>
 #include <TPaveText.h>
-#include <TBox.h>
 #include <TGraphErrors.h>
 #include <iostream>
 #include <vector>
@@ -53,38 +52,6 @@ static TString resolveFigureRoot(const char* pwd) {
 
 static Bool_t hasEntries(const TH1* h) {
   return h && h->GetEntries() > 0;
-}
-
-static void drawMassWindowLines(TH1* h, Double_t mLo, Double_t mHi, Color_t color = kRed) {
-  if (!h || !gPad) return;
-  gPad->Update();
-  Double_t yMax = h->GetMaximum();
-  Double_t yMin = h->GetMinimum();
-  if (yMax <= yMin) yMax = yMin + 1.0;
-  TLine* l1 = new TLine(mLo, yMin, mLo, yMax);
-  l1->SetLineColor(color);
-  l1->SetLineStyle(2);
-  l1->SetLineWidth(2);
-  l1->Draw("same");
-  TLine* l2 = new TLine(mHi, yMin, mHi, yMax);
-  l2->SetLineColor(color);
-  l2->SetLineStyle(2);
-  l2->SetLineWidth(2);
-  l2->Draw("same");
-}
-
-static void drawMassSignalRegion(TH1* h, Double_t mLo, Double_t mHi, Color_t color = kRed) {
-  if (!h || !gPad) return;
-  gPad->Update();
-  Double_t yMax = h->GetMaximum();
-  Double_t yMin = h->GetMinimum();
-  if (yMax <= yMin) yMax = yMin + 1.0;
-  TBox* box = new TBox(mLo, yMin, mHi, yMax);
-  box->SetFillColor(color);
-  box->SetFillStyle(3004);
-  box->SetLineColor(0);
-  box->Draw("same");
-  drawMassWindowLines(h, mLo, mHi, color);
 }
 
 static TH1* sumTwoHists(TH1* a, TH1* b, const char* name) {
@@ -305,7 +272,7 @@ void checkHistAnaKXiFemto(const Char_t* inputRootFile,
   note += Form("K0 signal (red): [%.3f, %.3f]; Xi signal (red): [%.3f, %.3f]; "
                "Xi leftSB/rightSB (blue): [%.3f, %.3f] / [%.3f, %.3f].\n",
                k0MassMin, k0MassMax, xiMassMin, xiMassMax, xiSbLMin, xiSbLMax, xiSbRMin, xiSbRMax);
-  note += "Mass page: K0 | Xi signal windows only (no Xi sideband lines).\n";
+  note += "Mass page: K0 | Xi histograms only (no window overlay).\n";
   PdfHeader::MakePdfHeaderPage(pdfName, "checkHistAnaKXiFemto.C", inputs, note.Data(), true, anaName);
 
   TCanvas* c1 = new TCanvas("c1", "canvas", 1200, 800);
@@ -344,7 +311,7 @@ void checkHistAnaKXiFemto(const Char_t* inputRootFile,
   }
   c1->Print(pdfName);
 
-  // Page 2: K0 | Xi invariant mass, signal window only (no Xi sidebands)
+  // Page 2: K0 | Xi invariant mass (histogram only; no window overlay)
   TH1* hK0Mass = (TH1*)fin->Get("hK0short_InvMass");
   TH1* hXiMass = (TH1*)fin->Get("hXi_InvMass");
   c1->Clear();
@@ -353,16 +320,14 @@ void checkHistAnaKXiFemto(const Char_t* inputRootFile,
   c1->cd(1);
   if (hasEntries(hK0Mass)) {
     hK0Mass->SetMinimum(0);
-    hK0Mass->SetTitle("K^{0}_{S} inv. mass (signal window);M_{#pi^{+}#pi^{-}} [GeV/c^{2}];Counts");
+    hK0Mass->SetTitle("K^{0}_{S} inv. mass;M_{#pi^{+}#pi^{-}} [GeV/c^{2}];Counts");
     hK0Mass->Draw();
-    drawMassSignalRegion(hK0Mass, k0MassMin, k0MassMax, kRed);
   }
   c1->cd(2);
   if (hasEntries(hXiMass)) {
     hXiMass->SetMinimum(0);
-    hXiMass->SetTitle("#Xi^{-} inv. mass (signal window, no SB);M_{#Lambda#pi} [GeV/c^{2}];Counts");
+    hXiMass->SetTitle("#Xi^{-} inv. mass;M_{#Lambda#pi} [GeV/c^{2}];Counts");
     hXiMass->Draw();
-    drawMassSignalRegion(hXiMass, xiMassMin, xiMassMax, kRed);
   }
   c1->Print(pdfName);
   c1->SetCanvasSize(1200, 800);
