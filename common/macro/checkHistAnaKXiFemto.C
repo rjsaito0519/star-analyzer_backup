@@ -1,5 +1,6 @@
 // checkHistAnaKXiFemto.C - QA + CF PDF for K0short-Xi femto (signal + Xi sidebands).
 // Invoke via: ./script/singularity_checkHistAnaKXiFemto.sh <root_file> <mainconf_path>
+// Display zooms below are QA-only (do not change Maker fills or YAML hist axes).
 
 #include <TROOT.h>
 #include <TSystem.h>
@@ -12,6 +13,8 @@
 #include <TString.h>
 #include <TStyle.h>
 #include <TLatex.h>
+#include <TPaveText.h>
+#include <TBox.h>
 #include <TGraphErrors.h>
 #include <iostream>
 #include <vector>
@@ -21,6 +24,19 @@
 #include "../../include/PdfIOMan.h"
 #include "ConfigManager.h"
 #include "cuts/FemtoConfig.h"
+
+// Display-only axis windows (FXT 3.9 kinematics / CF convention).
+static const Double_t kCfDrawMax = 0.5;
+static const Double_t kCfNormLo = 0.6;
+static const Double_t kCfNormHi = 1.0;
+static const Double_t kKstarDrawMax = 1.6;
+static const Double_t kPtDrawMaxK0 = 5.0;
+static const Double_t kPtDrawMaxXi = 6.0;
+static const Double_t kEtaDrawMin = -2.5;
+static const Double_t kEtaDrawMax = 0.5;
+static const Double_t kOpeningAngleDrawMax = 1.5;
+static const Double_t kDphiStarZoomMin = 3.05;
+static const Double_t kDphiStarZoomMax = 3.16;
 
 static TString resolveFigureRoot(const char* pwd) {
   const char* envFigureRoot = gSystem->Getenv("STAR_QA_FIGURE_ROOT");
@@ -35,21 +51,40 @@ static TString resolveFigureRoot(const char* pwd) {
   return figureRoot;
 }
 
+static Bool_t hasEntries(const TH1* h) {
+  return h && h->GetEntries() > 0;
+}
+
 static void drawMassWindowLines(TH1* h, Double_t mLo, Double_t mHi, Color_t color = kRed) {
   if (!h || !gPad) return;
   gPad->Update();
   Double_t yMax = h->GetMaximum();
-  if (yMax <= 0) yMax = 1.0;
-  TLine* l1 = new TLine(mLo, 0.0, mLo, yMax);
+  Double_t yMin = h->GetMinimum();
+  if (yMax <= yMin) yMax = yMin + 1.0;
+  TLine* l1 = new TLine(mLo, yMin, mLo, yMax);
   l1->SetLineColor(color);
   l1->SetLineStyle(2);
   l1->SetLineWidth(2);
   l1->Draw("same");
-  TLine* l2 = new TLine(mHi, 0.0, mHi, yMax);
+  TLine* l2 = new TLine(mHi, yMin, mHi, yMax);
   l2->SetLineColor(color);
   l2->SetLineStyle(2);
   l2->SetLineWidth(2);
   l2->Draw("same");
+}
+
+static void drawMassSignalRegion(TH1* h, Double_t mLo, Double_t mHi, Color_t color = kRed) {
+  if (!h || !gPad) return;
+  gPad->Update();
+  Double_t yMax = h->GetMaximum();
+  Double_t yMin = h->GetMinimum();
+  if (yMax <= yMin) yMax = yMin + 1.0;
+  TBox* box = new TBox(mLo, yMin, mHi, yMax);
+  box->SetFillColor(color);
+  box->SetFillStyle(3004);
+  box->SetLineColor(0);
+  box->Draw("same");
+  drawMassWindowLines(h, mLo, mHi, color);
 }
 
 static TH1* sumTwoHists(TH1* a, TH1* b, const char* name) {
@@ -66,10 +101,18 @@ static TH1* sumTwoHists(TH1* a, TH1* b, const char* name) {
   return out;
 }
 
-static void drawKstarCF(TH1* hSE, TH1* hME) {
-  if (!hSE || !hME) return;
-  Int_t binLo = hSE->FindBin(0.6 + 1e-9);
-  Int_t binHi = hSE->FindBin(1.0 - 1e-9);
+static void drawKstarSpectrum(TH1* h, Color_t color, const char* title) {
+  if (!hasEntries(h)) return;
+  h->SetLineColor(color);
+  h->SetTitle(title);
+  h->GetXaxis()->SetRangeUser(0.0, kKstarDrawMax);
+  h->Draw();
+}
+
+static void drawKstarCF(TH1* hSE, TH1* hME, const char* title = 0) {
+  if (!hasEntries(hSE) || !hasEntries(hME)) return;
+  Int_t binLo = hSE->FindBin(kCfNormLo + 1e-9);
+  Int_t binHi = hSE->FindBin(kCfNormHi - 1e-9);
   Double_t seNorm = hSE->Integral(binLo, binHi);
   Double_t meNorm = hME->Integral(binLo, binHi);
   if (seNorm <= 0 || meNorm <= 0) return;
@@ -83,7 +126,7 @@ static void drawKstarCF(TH1* hSE, TH1* hME) {
 
   for (Int_t ib = 1; ib <= hSE->GetNbinsX(); ++ib) {
     Double_t kstarVal = hSE->GetBinCenter(ib);
-    if (kstarVal > 0.5) break;
+    if (kstarVal > kCfDrawMax) break;
 
     Double_t se = hSE->GetBinContent(ib);
     Double_t me = hME->GetBinContent(ib);
@@ -101,21 +144,62 @@ static void drawKstarCF(TH1* hSE, TH1* hME) {
   if (x.empty()) return;
 
   TGraphErrors* gCF = new TGraphErrors((Int_t)x.size(), &x[0], &y[0], &ex[0], &ey[0]);
-  gCF->SetTitle("Correlation Function C(k*);k* [GeV/c];C(k*)");
+  TString cfTitle = title ? title : "C(k*) signal";
+  gCF->SetTitle(cfTitle + Form(";k* [GeV/c];C(k*)  (norm [%.1f,%.1f])", kCfNormLo, kCfNormHi));
   gCF->SetMarkerStyle(20);
   gCF->SetMarkerSize(0.8);
   gCF->SetMarkerColor(kBlack);
   gCF->SetLineColor(kBlack);
 
   gCF->Draw("AP");
-  gCF->GetHistogram()->SetMinimum(0.5);
-  gCF->GetHistogram()->SetMaximum(1.8);
-  gCF->GetXaxis()->SetRangeUser(0.0, 0.5);
 
-  TLine* line = new TLine(0.0, 1.0, 0.5, 1.0);
+  Double_t ymin = 1.0;
+  Double_t ymax = 1.0;
+  Bool_t haveScale = kFALSE;
+  for (size_t i = 0; i < y.size(); ++i) {
+    if (ey[i] > 0.25) continue;
+    if (!haveScale) {
+      ymin = y[i];
+      ymax = y[i];
+      haveScale = kTRUE;
+    } else {
+      if (y[i] < ymin) ymin = y[i];
+      if (y[i] > ymax) ymax = y[i];
+    }
+  }
+  ymin -= 0.08;
+  ymax += 0.08;
+  if (ymin > 0.85) ymin = 0.85;
+  if (ymax < 1.15) ymax = 1.15;
+  if (ymin < 0.7) ymin = 0.7;
+  if (ymax > 1.5) ymax = 1.5;
+
+  gCF->GetHistogram()->SetMinimum(ymin);
+  gCF->GetHistogram()->SetMaximum(ymax);
+  gCF->GetXaxis()->SetRangeUser(0.0, kCfDrawMax);
+
+  TLine* line = new TLine(0.0, 1.0, kCfDrawMax, 1.0);
   line->SetLineColor(kRed);
   line->SetLineStyle(2);
   line->Draw("same");
+}
+
+static void drawMixSamplerQA(TH1* h) {
+  if (!hasEntries(h)) return;
+  h->SetTitle("ME sampler QA;bin;weighted counts");
+  const char* labels[] = {
+      "att", "elig", "fill", "skip", "cap", "pCut", "eligDir", "emptyDir",
+      "selEmp", "fFwd", "fRev", "eFwd", "eRev", "overlap", "sigWin"};
+  const Int_t nLab = (Int_t)(sizeof(labels) / sizeof(labels[0]));
+  for (Int_t i = 0; i < nLab && i < h->GetNbinsX(); ++i) {
+    h->GetXaxis()->SetBinLabel(i + 1, labels[i]);
+  }
+  h->GetXaxis()->SetLabelSize(0.045);
+  h->GetXaxis()->LabelsOption("v");
+  gPad->SetBottomMargin(0.18);
+  gPad->SetLogy();
+  if (h->GetMinimum() <= 0) h->SetMinimum(0.5);
+  h->Draw("hist");
 }
 
 static Bool_t isHex32(const TString& s) {
@@ -215,102 +299,103 @@ void checkHistAnaKXiFemto(const Char_t* inputRootFile,
 
   std::vector<std::string> inputs;
   inputs.push_back((const char*)inputRootFile);
-  TString note = "Check histograms from run_anaKXiFemto.C (StKXiFemtoMaker).\n";
-  note += Form("CF draw to 0.5 GeV/c; norm in k*=[0.6,1.0].\n");
+  TString note = "Check histograms from run_anaK0XiFxtFemto.C (StK0XiFxtFemtoMaker).\n";
+  note += Form("CF draw to %.1f GeV/c; norm in k*=[%.1f,%.1f]. SE/ME k* drawn to %.1f.\n",
+               kCfDrawMax, kCfNormLo, kCfNormHi, kKstarDrawMax);
   note += Form("K0 signal (red): [%.3f, %.3f]; Xi signal (red): [%.3f, %.3f]; "
                "Xi leftSB/rightSB (blue): [%.3f, %.3f] / [%.3f, %.3f].\n",
                k0MassMin, k0MassMax, xiMassMin, xiMassMax, xiSbLMin, xiSbLMax, xiSbRMin, xiSbRMax);
+  note += "Mass page: K0 | Xi signal windows only (no Xi sideband lines).\n";
   PdfHeader::MakePdfHeaderPage(pdfName, "checkHistAnaKXiFemto.C", inputs, note.Data(), true, anaName);
 
   TCanvas* c1 = new TCanvas("c1", "canvas", 1200, 800);
   TH1* h1 = 0;
-  TH2* h2 = 0;
 
-  // Page 1: signal k* + CF
-  c1->Clear();
-  c1->Divide(3, 2);
-  c1->cd(1);
   TH1* hSE = (TH1*)fin->Get("hKstarSE_k0_xi");
   TH1* hME = (TH1*)fin->Get("hKstarME_k0_xi");
-  if (hSE) {
-    hSE->SetLineColor(kRed);
-    hSE->SetTitle("Same Event k* (K^{0}_{S}#Xi^{-});k* [GeV/c];Counts");
-    hSE->Draw();
+  TH2* h2SE_Cent = (TH2*)fin->Get("hKstarSEVsCent_k0_xi");
+  TH2* h2ME_Cent = (TH2*)fin->Get("hKstarMEVsCent_k0_xi");
+  const Bool_t haveVsCent = hasEntries(h2SE_Cent) || hasEntries(h2ME_Cent);
+  TH1* hMixQA = (TH1*)fin->Get("hMixSamplerQA");
+
+  // Page 1: signal k* + CF (+ vsCent if filled, else MixSampler QA)
+  c1->Clear();
+  if (haveVsCent) {
+    c1->Divide(3, 2);
+  } else {
+    c1->Divide(2, 2);
   }
+  c1->cd(1);
+  drawKstarSpectrum(hSE, kRed, "Same Event k* (K^{0}_{S}#Xi^{-});k* [GeV/c];Counts");
   c1->cd(2);
-  if (hME) {
-    hME->SetLineColor(kBlue);
-    hME->SetTitle("Mixed Event k* (K^{0}_{S}#Xi^{-});k* [GeV/c];Counts");
-    hME->Draw();
-  }
+  drawKstarSpectrum(hME, kBlue, "Mixed Event k* (K^{0}_{S}#Xi^{-});k* [GeV/c];Counts");
   c1->cd(3);
-  if (hSE && hME) drawKstarCF(hSE, hME);
-  c1->cd(4);
-  h2 = (TH2*)fin->Get("hKstarSEVsCent_k0_xi");
-  if (h2) h2->Draw("colz");
-  c1->cd(5);
-  h2 = (TH2*)fin->Get("hKstarMEVsCent_k0_xi");
-  if (h2) h2->Draw("colz");
+  if (hSE && hME) drawKstarCF(hSE, hME, "C(k*) signal");
+  if (haveVsCent) {
+    c1->cd(4);
+    if (hasEntries(h2SE_Cent)) h2SE_Cent->Draw("colz");
+    c1->cd(5);
+    if (hasEntries(h2ME_Cent)) h2ME_Cent->Draw("colz");
+    c1->cd(6);
+    drawMixSamplerQA(hMixQA);
+  } else {
+    c1->cd(4);
+    drawMixSamplerQA(hMixQA);
+  }
   c1->Print(pdfName);
 
-  // Page 2: K0 mass QA
+  // Page 2: K0 | Xi invariant mass, signal window only (no Xi sidebands)
+  TH1* hK0Mass = (TH1*)fin->Get("hK0short_InvMass");
+  TH1* hXiMass = (TH1*)fin->Get("hXi_InvMass");
   c1->Clear();
-  c1->Divide(3, 2);
+  c1->SetCanvasSize(1400, 700);
+  c1->Divide(2, 1);
   c1->cd(1);
-  h1 = (TH1*)fin->Get("hK0short_InvMass");
-  if (h1) {
-    h1->Draw();
-    drawMassWindowLines(h1, k0MassMin, k0MassMax, kRed);
+  if (hasEntries(hK0Mass)) {
+    hK0Mass->SetMinimum(0);
+    hK0Mass->SetTitle("K^{0}_{S} inv. mass (signal window);M_{#pi^{+}#pi^{-}} [GeV/c^{2}];Counts");
+    hK0Mass->Draw();
+    drawMassSignalRegion(hK0Mass, k0MassMin, k0MassMax, kRed);
   }
   c1->cd(2);
+  if (hasEntries(hXiMass)) {
+    hXiMass->SetMinimum(0);
+    hXiMass->SetTitle("#Xi^{-} inv. mass (signal window, no SB);M_{#Lambda#pi} [GeV/c^{2}];Counts");
+    hXiMass->Draw();
+    drawMassSignalRegion(hXiMass, xiMassMin, xiMassMax, kRed);
+  }
+  c1->Print(pdfName);
+  c1->SetCanvasSize(1200, 800);
+
+  // Page 3: K0 / Xi pT and eta (2x2, not 3-wide)
+  c1->Clear();
+  c1->Divide(2, 2);
+  c1->cd(1);
   h1 = (TH1*)fin->Get("hK0short_Pt");
-  if (h1) {
+  if (hasEntries(h1)) {
     gPad->SetLogy();
+    h1->GetXaxis()->SetRangeUser(0.0, kPtDrawMaxK0);
     h1->Draw();
-  }
-  c1->cd(3);
-  h1 = (TH1*)fin->Get("hK0short_Eta");
-  if (h1) h1->Draw();
-  c1->cd(4);
-  h1 = (TH1*)fin->Get("hDCA12");
-  if (h1) h1->Draw();
-  c1->cd(5);
-  h1 = (TH1*)fin->Get("hDCAV0");
-  if (h1) h1->Draw();
-  c1->cd(6);
-  h1 = (TH1*)fin->Get("hCosPointing");
-  if (h1) h1->Draw();
-  c1->Print(pdfName);
-
-  // Page 3: Xi mass QA + SB lines
-  c1->Clear();
-  c1->Divide(3, 2);
-  c1->cd(1);
-  h1 = (TH1*)fin->Get("hXi_InvMass");
-  if (h1) {
-    h1->Draw();
-    drawMassWindowLines(h1, xiMassMin, xiMassMax, kRed);
-    if (xiSbLMax > xiSbLMin) drawMassWindowLines(h1, xiSbLMin, xiSbLMax, kBlue);
-    if (xiSbRMax > xiSbRMin) drawMassWindowLines(h1, xiSbRMin, xiSbRMax, kBlue);
   }
   c1->cd(2);
-  h1 = (TH1*)fin->Get("hXi_Eta");
-  if (h1) h1->Draw();
+  h1 = (TH1*)fin->Get("hK0short_Eta");
+  if (hasEntries(h1)) {
+    h1->GetXaxis()->SetRangeUser(kEtaDrawMin, kEtaDrawMax);
+    h1->Draw();
+  }
   c1->cd(3);
   h1 = (TH1*)fin->Get("hXi_Pt");
-  if (h1) {
+  if (hasEntries(h1)) {
     gPad->SetLogy();
+    h1->GetXaxis()->SetRangeUser(0.0, kPtDrawMaxXi);
     h1->Draw();
   }
   c1->cd(4);
-  h1 = (TH1*)fin->Get("hDCA_Cascade");
-  if (h1) h1->Draw();
-  c1->cd(5);
-  h1 = (TH1*)fin->Get("hCosPointing_Xi");
-  if (h1) h1->Draw();
-  c1->cd(6);
-  h1 = (TH1*)fin->Get("hNSigmaProton");
-  if (h1) h1->Draw();
+  h1 = (TH1*)fin->Get("hXi_Eta");
+  if (hasEntries(h1)) {
+    h1->GetXaxis()->SetRangeUser(kEtaDrawMin, kEtaDrawMax);
+    h1->Draw();
+  }
   c1->Print(pdfName);
 
   // Page 4: left / right Xi SB CF
@@ -318,65 +403,43 @@ void checkHistAnaKXiFemto(const Char_t* inputRootFile,
   TH1* hME_L = (TH1*)fin->Get("hKstarME_k0_xi_leftSB");
   TH1* hSE_R = (TH1*)fin->Get("hKstarSE_k0_xi_rightSB");
   TH1* hME_R = (TH1*)fin->Get("hKstarME_k0_xi_rightSB");
-  if (hSE_L || hSE_R) {
+  if (hasEntries(hSE_L) || hasEntries(hSE_R)) {
     c1->Clear();
     c1->Divide(3, 2);
     c1->cd(1);
-    if (hSE_L) {
-      hSE_L->SetLineColor(kRed);
-      hSE_L->SetTitle("SE k* Xi left SB;k* [GeV/c];Counts");
-      hSE_L->Draw();
-    }
+    drawKstarSpectrum(hSE_L, kRed, "SE k* Xi left SB;k* [GeV/c];Counts");
     c1->cd(2);
-    if (hME_L) {
-      hME_L->SetLineColor(kBlue);
-      hME_L->SetTitle("ME k* Xi left SB;k* [GeV/c];Counts");
-      hME_L->Draw();
-    }
+    drawKstarSpectrum(hME_L, kBlue, "ME k* Xi left SB;k* [GeV/c];Counts");
     c1->cd(3);
-    if (hSE_L && hME_L) drawKstarCF(hSE_L, hME_L);
+    if (hSE_L && hME_L) drawKstarCF(hSE_L, hME_L, "C(k*) Xi left SB");
     c1->cd(4);
-    if (hSE_R) {
-      hSE_R->SetLineColor(kRed);
-      hSE_R->SetTitle("SE k* Xi right SB;k* [GeV/c];Counts");
-      hSE_R->Draw();
-    }
+    drawKstarSpectrum(hSE_R, kRed, "SE k* Xi right SB;k* [GeV/c];Counts");
     c1->cd(5);
-    if (hME_R) {
-      hME_R->SetLineColor(kBlue);
-      hME_R->SetTitle("ME k* Xi right SB;k* [GeV/c];Counts");
-      hME_R->Draw();
-    }
+    drawKstarSpectrum(hME_R, kBlue, "ME k* Xi right SB;k* [GeV/c];Counts");
     c1->cd(6);
-    if (hSE_R && hME_R) drawKstarCF(hSE_R, hME_R);
+    if (hSE_R && hME_R) drawKstarCF(hSE_R, hME_R, "C(k*) Xi right SB");
     c1->Print(pdfName);
   }
 
   // Page 5: SB-LR + signal CF
   TH1* hSE_LR = sumTwoHists(hSE_L, hSE_R, "hSE_k0_xi_SBLR");
   TH1* hME_LR = sumTwoHists(hME_L, hME_R, "hME_k0_xi_SBLR");
-  if (hSE_LR && hME_LR) {
+  if (hasEntries(hSE_LR) && hasEntries(hME_LR)) {
     c1->Clear();
     c1->Divide(2, 2);
     c1->cd(1);
-    hSE_LR->SetLineColor(kRed);
-    hSE_LR->SetTitle("SE k* Xi SB-LR;k* [GeV/c];Counts");
-    hSE_LR->Draw();
+    drawKstarSpectrum(hSE_LR, kRed, "SE k* Xi SB-LR;k* [GeV/c];Counts");
     c1->cd(2);
-    hME_LR->SetLineColor(kBlue);
-    hME_LR->SetTitle("ME k* Xi SB-LR;k* [GeV/c];Counts");
-    hME_LR->Draw();
+    drawKstarSpectrum(hME_LR, kBlue, "ME k* Xi SB-LR;k* [GeV/c];Counts");
     c1->cd(3);
-    drawKstarCF(hSE_LR, hME_LR);
+    drawKstarCF(hSE_LR, hME_LR, "C(k*) Xi SB-LR");
     c1->cd(4);
-    if (hSE && hME) drawKstarCF(hSE, hME);
+    if (hSE && hME) drawKstarCF(hSE, hME, "C(k*) signal");
     c1->Print(pdfName);
   }
 
-  // Page 6: cent-binned signal CF
-  TH2* h2SE_Cent = (TH2*)fin->Get("hKstarSEVsCent_k0_xi");
-  TH2* h2ME_Cent = (TH2*)fin->Get("hKstarMEVsCent_k0_xi");
-  if (h2SE_Cent && h2ME_Cent) {
+  // Cent-binned CF only when vsCent is actually filled
+  if (hasEntries(h2SE_Cent) && hasEntries(h2ME_Cent)) {
     c1->Clear();
     c1->Divide(3, 3);
     for (Int_t ic = 0; ic < 9; ic++) {
@@ -385,130 +448,150 @@ void checkHistAnaKXiFemto(const Char_t* inputRootFile,
       TString hnameME = TString::Format("hME_proj_cent%d", ic);
       TH1D* hProjSE = h2SE_Cent->ProjectionX(hnameSE, ic + 1, ic + 1);
       TH1D* hProjME = h2ME_Cent->ProjectionX(hnameME, ic + 1, ic + 1);
-      TString title = TString::Format("Cent Bin %d;k* [GeV/c];C(k*)", ic);
-      hProjSE->SetTitle(title.Data());
-      drawKstarCF(hProjSE, hProjME);
+      if (!hasEntries(hProjSE) || !hasEntries(hProjME)) continue;
+      TString title = TString::Format("C(k*) cent bin %d", ic);
+      drawKstarCF(hProjSE, hProjME, title.Data());
     }
     c1->Print(pdfName);
   }
 
-  // Page 7 (Step 4): |DeltaPhi*| SE vs ME (signal)
+  // |DeltaPhi*| : two-body pair CM => identically ~pi; zoom the spike
   TH1* hDpsSE = (TH1*)fin->Get("hDeltaPhiStarSE_k0_xi");
   TH1* hDpsME = (TH1*)fin->Get("hDeltaPhiStarME_k0_xi");
-  if (hDpsSE || hDpsME) {
+  if (hasEntries(hDpsSE) || hasEntries(hDpsME)) {
     c1->Clear();
     c1->Divide(2, 2);
     c1->cd(1);
-    if (hDpsSE) {
+    if (hasEntries(hDpsSE)) {
       hDpsSE->SetLineColor(kRed);
-      hDpsSE->SetTitle("SE |#Delta#phi^{*}| (signal);|#Delta#phi^{*}| [rad];Counts");
+      hDpsSE->SetTitle("SE |#Delta#phi^{*}| (signal, zoom);|#Delta#phi^{*}| [rad];Counts");
+      hDpsSE->GetXaxis()->SetRangeUser(kDphiStarZoomMin, kDphiStarZoomMax);
       hDpsSE->Draw();
     }
     c1->cd(2);
-    if (hDpsME) {
+    if (hasEntries(hDpsME)) {
       hDpsME->SetLineColor(kBlue);
-      hDpsME->SetTitle("ME |#Delta#phi^{*}| (signal);|#Delta#phi^{*}| [rad];Counts");
+      hDpsME->SetTitle("ME |#Delta#phi^{*}| (signal, zoom);|#Delta#phi^{*}| [rad];Counts");
+      hDpsME->GetXaxis()->SetRangeUser(kDphiStarZoomMin, kDphiStarZoomMax);
       hDpsME->Draw();
     }
     c1->cd(3);
     TH1* hDpsSE_L = (TH1*)fin->Get("hDeltaPhiStarSE_k0_xi_leftSB");
-    TH1* hDpsME_L = (TH1*)fin->Get("hDeltaPhiStarME_k0_xi_leftSB");
-    if (hDpsSE_L) {
+    if (hasEntries(hDpsSE_L)) {
       hDpsSE_L->SetLineColor(kRed);
+      hDpsSE_L->SetTitle("SE |#Delta#phi^{*}| (left SB, zoom);|#Delta#phi^{*}| [rad];Counts");
+      hDpsSE_L->GetXaxis()->SetRangeUser(kDphiStarZoomMin, kDphiStarZoomMax);
       hDpsSE_L->Draw();
     }
     c1->cd(4);
-    if (hDpsME_L) {
-      hDpsME_L->SetLineColor(kBlue);
-      hDpsME_L->Draw();
-    }
+    TPaveText* noteDps = new TPaveText(0.12, 0.25, 0.88, 0.75, "NDC");
+    noteDps->SetFillColor(0);
+    noteDps->SetBorderSize(1);
+    noteDps->SetTextAlign(12);
+    noteDps->SetTextSize(0.035);
+    noteDps->AddText("|#Delta#phi*| of parent momenta in the pair CM");
+    noteDps->AddText("is identically #pi (two-body back-to-back).");
+    noteDps->AddText("Display zoomed to the last bins; definition is a Maker TODO.");
+    noteDps->Draw();
     c1->Print(pdfName);
   }
 
-  // Page 8 (Step 4): DeltaEta / opening angle / DeltaPhi lab (signal)
+  // DeltaEta / opening angle / DeltaPhi lab (signal)
   TH1* hDeSE = (TH1*)fin->Get("hDeltaEtaSE_k0_xi");
   TH1* hDeME = (TH1*)fin->Get("hDeltaEtaME_k0_xi");
   TH1* hOaSE = (TH1*)fin->Get("hOpeningAngleSE_k0_xi");
   TH1* hOaME = (TH1*)fin->Get("hOpeningAngleME_k0_xi");
   TH1* hDpSE = (TH1*)fin->Get("hDeltaPhiLabSE_k0_xi");
   TH1* hDpME = (TH1*)fin->Get("hDeltaPhiLabME_k0_xi");
-  if (hDeSE || hOaSE || hDpSE) {
+  if (hasEntries(hDeSE) || hasEntries(hOaSE) || hasEntries(hDpSE)) {
     c1->Clear();
     c1->Divide(3, 2);
     c1->cd(1);
-    if (hDeSE) {
+    if (hasEntries(hDeSE)) {
       hDeSE->SetLineColor(kRed);
       hDeSE->SetTitle("SE #Delta#eta (lab);#Delta#eta;Counts");
       hDeSE->Draw();
     }
     c1->cd(2);
-    if (hDeME) {
+    if (hasEntries(hDeME)) {
       hDeME->SetLineColor(kBlue);
       hDeME->SetTitle("ME #Delta#eta (lab);#Delta#eta;Counts");
       hDeME->Draw();
     }
     c1->cd(3);
-    if (hOaSE) {
+    if (hasEntries(hOaSE)) {
       hOaSE->SetLineColor(kRed);
       hOaSE->SetTitle("SE opening angle;#theta [rad];Counts");
+      hOaSE->GetXaxis()->SetRangeUser(0.0, kOpeningAngleDrawMax);
       hOaSE->Draw();
     }
     c1->cd(4);
-    if (hOaME) {
+    if (hasEntries(hOaME)) {
       hOaME->SetLineColor(kBlue);
       hOaME->SetTitle("ME opening angle;#theta [rad];Counts");
+      hOaME->GetXaxis()->SetRangeUser(0.0, kOpeningAngleDrawMax);
       hOaME->Draw();
     }
     c1->cd(5);
-    if (hDpSE) {
+    if (hasEntries(hDpSE)) {
       hDpSE->SetLineColor(kRed);
       hDpSE->SetTitle("SE #Delta#phi (lab);#Delta#phi [rad];Counts");
+      hDpSE->SetMinimum(0);
       hDpSE->Draw();
     }
     c1->cd(6);
-    if (hDpME) {
+    if (hasEntries(hDpME)) {
       hDpME->SetLineColor(kBlue);
       hDpME->SetTitle("ME #Delta#phi (lab);#Delta#phi [rad];Counts");
+      hDpME->SetMinimum(0);
       hDpME->Draw();
     }
     c1->Print(pdfName);
   }
 
-  // Page 9 (Step 4): 2D proximity maps (SE signal)
+  // 2D proximity maps (SE signal)
   TH2* hEtaPhi = (TH2*)fin->Get("hDeltaEta_vs_DeltaPhiLabSE_k0_xi");
   TH2* hKstarDps = (TH2*)fin->Get("hKstar_vs_DeltaPhiStarSE_k0_xi");
-  if (hEtaPhi || hKstarDps) {
+  if (hasEntries(hEtaPhi) || hasEntries(hKstarDps)) {
     c1->Clear();
     c1->Divide(2, 1);
     c1->cd(1);
-    if (hEtaPhi) hEtaPhi->Draw("colz");
+    if (hasEntries(hEtaPhi)) {
+      gPad->SetLogz();
+      hEtaPhi->Draw("colz");
+    }
     c1->cd(2);
-    if (hKstarDps) hKstarDps->Draw("colz");
+    if (hasEntries(hKstarDps)) {
+      hKstarDps->GetYaxis()->SetRangeUser(kDphiStarZoomMin, kDphiStarZoomMax);
+      hKstarDps->GetXaxis()->SetRangeUser(0.0, kKstarDrawMax);
+      gPad->SetLogz();
+      hKstarDps->Draw("colz");
+    }
     c1->Print(pdfName);
   }
 
-  // Page 10 (Step 4): shared-track QA
+  // Shared-track QA: skip empty ME/K0-skip frames; print counts
   TH1* hShareSE = (TH1*)fin->Get("hShareRejectSE");
   TH1* hShareME = (TH1*)fin->Get("hShareRejectME");
   TH1* hK0Skip = (TH1*)fin->Get("hK0_SkippedSharedWithXi");
-  if (hShareSE || hShareME || hK0Skip) {
+  if (hasEntries(hShareSE) || hasEntries(hShareME) || hasEntries(hK0Skip)) {
     c1->Clear();
-    c1->Divide(3, 1);
-    c1->cd(1);
-    if (hShareSE) {
-      hShareSE->SetTitle("ShareTracks reject (SE);bin;Counts");
-      hShareSE->Draw();
+    TPaveText* box = new TPaveText(0.18, 0.22, 0.82, 0.78, "NDC");
+    box->SetFillColor(0);
+    box->SetBorderSize(1);
+    box->SetTextAlign(12);
+    box->SetTextSize(0.035);
+    box->AddText("Pair-level ShareTracks (this ROOT)");
+    box->AddText(Form("SE k* pairs: %.0f", hasEntries(hSE) ? hSE->GetEntries() : 0.0));
+    box->AddText(Form("SE share reject: %.0f", hasEntries(hShareSE) ? hShareSE->GetEntries() : 0.0));
+    box->AddText(Form("ME share reject: %.0f  (0 expected: mixed events)",
+                      hasEntries(hShareME) ? hShareME->GetEntries() : 0.0));
+    if (hasEntries(hK0Skip)) {
+      box->AddText(Form("K0 recon skip-shared: %.0f", hK0Skip->GetEntries()));
+    } else {
+      box->AddText("K0 skip-shared hist: empty here (K0 dummy ROOT).");
     }
-    c1->cd(2);
-    if (hShareME) {
-      hShareME->SetTitle("ShareTracks reject (ME);bin;Counts");
-      hShareME->Draw();
-    }
-    c1->cd(3);
-    if (hK0Skip) {
-      hK0Skip->SetTitle("K0 recon skip (Xi daughter);N_{skip}/event;Counts");
-      hK0Skip->Draw();
-    }
+    box->Draw();
     c1->Print(pdfName);
   }
 
