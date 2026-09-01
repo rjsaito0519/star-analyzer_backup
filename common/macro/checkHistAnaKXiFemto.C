@@ -54,6 +54,23 @@ static Bool_t hasEntries(const TH1* h) {
   return h && h->GetEntries() > 0;
 }
 
+static void drawWindowDottedLines(TH1* h, Double_t xLo, Double_t xHi, Color_t color = kRed) {
+  if (!h || !gPad) return;
+  gPad->Update();
+  Double_t yMin = gPad->GetUymin();
+  Double_t yMax = gPad->GetUymax();
+  TLine* l1 = new TLine(xLo, yMin, xLo, yMax);
+  l1->SetLineColor(color);
+  l1->SetLineStyle(3);
+  l1->SetLineWidth(2);
+  l1->Draw("same");
+  TLine* l2 = new TLine(xHi, yMin, xHi, yMax);
+  l2->SetLineColor(color);
+  l2->SetLineStyle(3);
+  l2->SetLineWidth(2);
+  l2->Draw("same");
+}
+
 static TH1* sumTwoHists(TH1* a, TH1* b, const char* name) {
   if (!a && !b) return 0;
   TH1* out = 0;
@@ -73,6 +90,7 @@ static void drawKstarSpectrum(TH1* h, Color_t color, const char* title) {
   h->SetLineColor(color);
   h->SetTitle(title);
   h->GetXaxis()->SetRangeUser(0.0, kKstarDrawMax);
+  h->SetMinimum(0);
   h->Draw();
 }
 
@@ -273,7 +291,7 @@ void checkHistAnaKXiFemto(const Char_t* inputRootFile,
   note += Form("K0 signal (red): [%.3f, %.3f]; Xi signal (red): [%.3f, %.3f]; "
                "Xi leftSB/rightSB (blue): [%.3f, %.3f] / [%.3f, %.3f].\n",
                k0MassMin, k0MassMax, xiMassMin, xiMassMax, xiSbLMin, xiSbLMax, xiSbRMin, xiSbRMax);
-  note += "Mass page: K0 | Xi histograms only (no window overlay).\n";
+  note += "Overview page: K0 | Xi | SE k* (dotted lines = YAML signal mass windows).\n";
   PdfHeader::MakePdfHeaderPage(pdfName, "checkHistAnaKXiFemto.C", inputs, note.Data(), true, anaName);
 
   TCanvas* c1 = new TCanvas("c1", "canvas", 1200, 800);
@@ -312,24 +330,28 @@ void checkHistAnaKXiFemto(const Char_t* inputRootFile,
   }
   c1->Print(pdfName);
 
-  // Page 2: K0 | Xi invariant mass (histogram only; no window overlay)
+  // Page 2: K0 | Xi | SE k*  (dotted lines mark the pair-selection mass windows)
   TH1* hK0Mass = (TH1*)fin->Get("hK0short_InvMass");
   TH1* hXiMass = (TH1*)fin->Get("hXi_InvMass");
   c1->Clear();
-  c1->SetCanvasSize(1400, 700);
-  c1->Divide(2, 1);
+  c1->SetCanvasSize(1800, 600);
+  c1->Divide(3, 1);
   c1->cd(1);
   if (hasEntries(hK0Mass)) {
     hK0Mass->SetMinimum(0);
     hK0Mass->SetTitle("K^{0}_{S} inv. mass;M_{#pi^{+}#pi^{-}} [GeV/c^{2}];Counts");
     hK0Mass->Draw();
+    drawWindowDottedLines(hK0Mass, k0MassMin, k0MassMax, kRed);
   }
   c1->cd(2);
   if (hasEntries(hXiMass)) {
     hXiMass->SetMinimum(0);
     hXiMass->SetTitle("#Xi^{-} inv. mass;M_{#Lambda#pi} [GeV/c^{2}];Counts");
     hXiMass->Draw();
+    drawWindowDottedLines(hXiMass, xiMassMin, xiMassMax, kRed);
   }
+  c1->cd(3);
+  drawKstarSpectrum(hSE, kRed, "SE k* (K^{0}_{S}#Xi^{-});k* [GeV/c];Counts");
   c1->Print(pdfName);
   c1->SetCanvasSize(1200, 800);
 
