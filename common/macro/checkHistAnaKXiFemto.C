@@ -7,6 +7,7 @@
 #include <TFile.h>
 #include <TCanvas.h>
 #include <TH1.h>
+#include <TH1F.h>
 #include <TH2.h>
 #include <TLine.h>
 #include <TMath.h>
@@ -54,6 +55,24 @@ static Bool_t hasEntries(const TH1* h) {
   return h && h->GetEntries() > 0;
 }
 
+static void drawEmptyPad() {
+  static Int_t seq = 0;
+  ++seq;
+  TH1F* h = new TH1F(Form("hDummyPad%d", seq), ";;", 1, 0.0, 1.0);
+  h->SetDirectory(0);
+  h->SetStats(0);
+  h->SetLineColor(kWhite);
+  h->SetMinimum(0.0);
+  h->SetMaximum(1.0);
+  h->GetXaxis()->SetNdivisions(0);
+  h->GetYaxis()->SetNdivisions(0);
+  h->GetXaxis()->SetLabelSize(0);
+  h->GetYaxis()->SetLabelSize(0);
+  h->GetXaxis()->SetTickLength(0);
+  h->GetYaxis()->SetTickLength(0);
+  h->Draw("AXIS");
+}
+
 static void drawWindowDottedLines(TH1* h, Double_t xLo, Double_t xHi, Color_t color = kRed) {
   if (!h || !gPad) return;
   gPad->Update();
@@ -90,6 +109,7 @@ static void drawKstarSpectrum(TH1* h, Color_t color, const char* title) {
   h->SetLineColor(color);
   h->SetTitle(title);
   h->GetXaxis()->SetRangeUser(0.0, kKstarDrawMax);
+  h->GetYaxis()->SetNoExponent();
   h->SetMinimum(0);
   h->Draw();
 }
@@ -179,9 +199,8 @@ static void drawMixSamplerQA(TH1* h) {
   for (Int_t i = 0; i < nLab && i < h->GetNbinsX(); ++i) {
     h->GetXaxis()->SetBinLabel(i + 1, labels[i]);
   }
-  h->GetXaxis()->SetLabelSize(0.045);
+  h->GetXaxis()->SetLabelSize(0.04);
   h->GetXaxis()->LabelsOption("v");
-  gPad->SetBottomMargin(0.18);
   gPad->SetLogy();
   if (h->GetMinimum() <= 0) h->SetMinimum(0.5);
   h->Draw("hist");
@@ -304,31 +323,36 @@ void checkHistAnaKXiFemto(const Char_t* inputRootFile,
   const Bool_t haveVsCent = hasEntries(h2SE_Cent) || hasEntries(h2ME_Cent);
   TH1* hMixQA = (TH1*)fin->Get("hMixSamplerQA");
 
-  // Page 1: signal k* + CF (+ vsCent if filled, else MixSampler QA)
-  c1->Clear();
+  // Page 1: signal k* + CF
   if (haveVsCent) {
+    c1->Clear();
     c1->Divide(3, 2);
-  } else {
-    c1->Divide(2, 2);
-  }
-  c1->cd(1);
-  drawKstarSpectrum(hSE, kRed, "Same Event k* (K^{0}_{S}#Xi^{-});k* [GeV/c];Counts");
-  c1->cd(2);
-  drawKstarSpectrum(hME, kBlue, "Mixed Event k* (K^{0}_{S}#Xi^{-});k* [GeV/c];Counts");
-  c1->cd(3);
-  if (hSE && hME) drawKstarCF(hSE, hME, "C(k*) signal");
-  if (haveVsCent) {
+    c1->cd(1);
+    drawKstarSpectrum(hSE, kRed, "Same Event k* (K^{0}_{S}#Xi^{-});k* [GeV/c];Counts");
+    c1->cd(2);
+    drawKstarSpectrum(hME, kBlue, "Mixed Event k* (K^{0}_{S}#Xi^{-});k* [GeV/c];Counts");
+    c1->cd(3);
+    if (hSE && hME) drawKstarCF(hSE, hME, "C(k*) signal");
     c1->cd(4);
     if (hasEntries(h2SE_Cent)) h2SE_Cent->Draw("colz");
     c1->cd(5);
     if (hasEntries(h2ME_Cent)) h2ME_Cent->Draw("colz");
     c1->cd(6);
     drawMixSamplerQA(hMixQA);
+    c1->Print(pdfName);
   } else {
-    c1->cd(4);
-    drawMixSamplerQA(hMixQA);
+    // Same 3-wide pad geometry as K0 | Xi | SE; dummy fills the third slot.
+    c1->Clear();
+    c1->SetCanvasSize(1800, 600);
+    c1->Divide(3, 1);
+    c1->cd(1);
+    drawKstarSpectrum(hSE, kRed, "Same Event k* (K^{0}_{S}#Xi^{-});k* [GeV/c];Counts");
+    c1->cd(2);
+    drawKstarSpectrum(hME, kBlue, "Mixed Event k* (K^{0}_{S}#Xi^{-});k* [GeV/c];Counts");
+    c1->cd(3);
+    drawEmptyPad();
+    c1->Print(pdfName);
   }
-  c1->Print(pdfName);
 
   // Page 2: K0 | Xi | SE k*  (dotted lines mark the pair-selection mass windows)
   TH1* hK0Mass = (TH1*)fin->Get("hK0short_InvMass");
@@ -353,9 +377,21 @@ void checkHistAnaKXiFemto(const Char_t* inputRootFile,
   c1->cd(3);
   drawKstarSpectrum(hSE, kRed, "SE k* (K^{0}_{S}#Xi^{-});k* [GeV/c];Counts");
   c1->Print(pdfName);
-  c1->SetCanvasSize(1200, 800);
 
-  // Page 3: K0 / Xi pT and eta (2x2, not 3-wide)
+  delete c1;
+  c1 = new TCanvas("c1", "canvas", 1200, 800);
+
+  if (!haveVsCent) {
+    c1->Clear();
+    c1->Divide(2, 1);
+    c1->cd(1);
+    if (hSE && hME) drawKstarCF(hSE, hME, "C(k*) signal");
+    c1->cd(2);
+    drawMixSamplerQA(hMixQA);
+    c1->Print(pdfName);
+  }
+
+  // K0 / Xi pT and eta (2x2)
   c1->Clear();
   c1->Divide(2, 2);
   c1->cd(1);
