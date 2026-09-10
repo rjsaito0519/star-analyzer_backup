@@ -268,6 +268,37 @@ void anaLambdaNuclearId(const Char_t* inputFile = "config/picoDstList/auau19GeV_
 
           if (isSig) {
             nuclearidMaker->FillKstar(k_star, q_lab, nucType, cent9);
+
+            // --------------------------------------------------------
+            // Track merging effect: Deltaphi* vs Deltaeta for proton(Lambda) vs nucleus
+            // Filled only for signal Lambda invMass region
+            // --------------------------------------------------------
+            if (nucType >= 0 && nucType <= 3) {
+              StPicoTrack* trProton = picoDst->track(lamProtonIds[il]);
+              StPicoTrack* trNuc    = picoDst->track(nucIds[in]);
+              if (trProton && trNuc) {
+                const Double_t kBz     = 0.5;   // [T]
+                const Double_t kRmerge = 1.4;   // [m]
+                const Int_t    kQnuc[4] = {1, 1, 2, 2}; // d, t, 3He, 4He
+                Double_t pT_p = trProton->pPt();
+                Double_t pT_n = trNuc->pPt();
+                if (pT_p > 0. && pT_n > 0.) {
+                  Double_t phi_p = trProton->pMom().Phi();
+                  Double_t eta_p = trProton->pMom().Eta();
+                  Double_t phi_n = trNuc->pMom().Phi();
+                  Double_t eta_n = trNuc->pMom().Eta();
+                  Double_t arg_p = 0.3 * 1             * kBz * kRmerge / (2.0 * pT_p);
+                  Double_t arg_n = 0.3 * kQnuc[nucType] * kBz * kRmerge / (2.0 * pT_n);
+                  if (TMath::Abs(arg_p) > 1.) arg_p = (arg_p > 0.) ? 1. : -1.;
+                  if (TMath::Abs(arg_n) > 1.) arg_n = (arg_n > 0.) ? 1. : -1.;
+                  Double_t dphiStar = phi_p - phi_n + TMath::ASin(arg_p) - TMath::ASin(arg_n);
+                  while (dphiStar >  TMath::Pi()) dphiStar -= TMath::TwoPi();
+                  while (dphiStar < -TMath::Pi()) dphiStar += TMath::TwoPi();
+                  nuclearidMaker->FillTrackMerging(dphiStar, eta_p - eta_n, nucType);
+                }
+              }
+            }
+            // --------------------------------------------------------
           } else if (isSBPos) {
             nuclearidMaker->FillKstarSideband(k_star, q_lab, nucType, +1, cent9);
           } else if (isSBNeg) {

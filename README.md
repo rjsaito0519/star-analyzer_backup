@@ -22,7 +22,7 @@ flowchart TD
 
   Ch["StChain"]
   P["StPicoDstMaker"]
-  M["StLambdaMaker / StPhiMaker / StXiFxtMaker"]
+  M["StLambdaMaker / StPhiMaker"]
 
   RS --> R4
   R4 --> Run
@@ -64,7 +64,7 @@ Successful `job/run/submit.sh` submissions now save per-`jobid` reproducibility 
 | **analysis/** | `run_anaXxx.C` (runner) + `anaXxx.C` (chain; ACLiC). One pair per analysis. |
 | **config/** | `mainconf/`, `cuts/`, `maker/`, `hist/`, `analysis/` (analysis_info), `picoDstList/`. |
 | **StMaker/** | Maker sources (`St*Maker/`) → `lib/libStXXXMaker.so`; shared helpers in `common/` → `lib/libStCommon.so`. |
-| **script/** | `setup.sh`, `run_ana*.sh`, `run_fitCorrelation.sh` (LL/KP femto fit helper for ROOT CF histograms), `singularity_make.sh`, `singularity_run_ana*.sh` (incl. `singularity_run_anaXiFxt.sh`, `singularity_run_anaKplusXiFemto.sh`, `singularity_run_anaKminusXiFemto.sh`), `generate_joblist.sh`, `checkHistAnaPhi.sh`, `checkHistAnaLambda.sh`, `singularity_checkHistAnaPhi.sh`, `singularity_checkHistAnaLambda.sh`, helpers. |
+| **script/** | `setup.sh`, `run_ana*.sh`, `run_fitCorrelation.sh` (LL/KP femto fit helper for ROOT CF histograms), `singularity_make.sh`, `singularity_run_ana*.sh`, `generate_joblist.sh`, `checkHistAnaPhi.sh`, `checkHistAnaLambda.sh`, `singularity_checkHistAnaPhi.sh`, `singularity_checkHistAnaLambda.sh`, helpers. |
 | **job/** | `joblist/` templates; `job/run/` for submit and logs. |
 | **include/** / **src/** | Framework (`ConfigManager`, cuts, yaml-cpp build). |
 

@@ -66,29 +66,6 @@ class FemtoConfig {
   Double_t kaonMinusMinRapidityCm;
   Double_t kaonMinusMaxRapidityCm;
 
-  // K0short mass window for K0-Xi femto pairing (StKXiFemtoMaker).
-  Double_t k0MassMin;
-  Double_t k0MassMax;
-
-  // K+ track cuts for K+-Xi- femto (StKplusXiFemtoMaker).
-  Double_t kaonPlusMaxDca;
-  Double_t kaonPlusMinPt;
-  Double_t kaonPlusMaxPt;
-  Double_t kaonPlusMaxAbsEta;
-  Double_t kaonPlusMaxAbsNSigma;
-  Short_t kaonPlusMinNHitsFit;
-  Double_t kaonPlusMinNHitsRatio;
-  Double_t kaonPlusTofMomentumThreshold;
-  Double_t kaonPlusMinMass2;
-  Double_t kaonPlusMaxMass2;
-  Double_t xiMassMin;
-  Double_t xiMassMax;
-  // Xi sideband mass windows for SB CF (StKplus/Kminus/KXiFemtoMaker). Empty/invalid if min >= max.
-  Double_t xiSidebandLeftMin;
-  Double_t xiSidebandLeftMax;
-  Double_t xiSidebandRightMin;
-  Double_t xiSidebandRightMax;
-
   // 4He bachelor cuts for femto pairing.
   Double_t he4MaxDca;
   Double_t he4MinPMom;

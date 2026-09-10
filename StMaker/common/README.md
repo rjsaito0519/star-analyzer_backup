@@ -12,7 +12,7 @@ Shared compiled helpers built into `lib/libStCommon.so` and loaded by every `run
 
 **Source of truth:** [`StPhiKKReconstruction.h`](StPhiKKReconstruction.h) / [`StPhiKKReconstruction.cxx`](StPhiKKReconstruction.cxx)
 
-Helix DCA, φ→K⁺K⁻ invariant mass, opening angle, pair rapidity, **unified production TOF PID** (`PassPhiDaughterTofPid` / `PassPairTofCut`; same function for K⁺ and K⁻), and TOF fill logic used by `StPhiMaker` and `StFemtoMaker` live here. Cut thresholds come from YAML via `ConfigManager` (`PhiCutConfig`, `PIDCutConfig`). Predicate without STAR deps: [`include/PhiDaughterPid.h`](../../include/PhiDaughterPid.h). `PassTofKaonPid` is the loose collection/fallback filter only (`tofFallbackMode`); it is not production pair PID.
+Helix DCA, φ→K⁺K⁻ invariant mass, opening angle, pair rapidity, **production TOF PID** (`PassPhiDaughterTofPid` / `PassPairTofCut`; K⁻ requires TOF by default via YAML `phiDaughterKaonMinusRequireTof`), and TOF fill logic used by `StPhiMaker` and `StFemtoMaker` live here. Cut thresholds come from YAML via `ConfigManager` (`PhiCutConfig`, `PIDCutConfig`). Predicate without STAR deps: [`include/PhiDaughterPid.h`](../../include/PhiDaughterPid.h). `PassTofKaonPid` is the loose collection/fallback filter only (`tofFallbackMode`); it is not production pair PID.
 
 Makers keep event loops, histogram filling, and analysis-specific orchestration (e.g. femto `BuildResonanceCandidates`, SE/ME pairing).
 

@@ -127,23 +127,25 @@ Bool_t PassTofKaonPid(const PhiKkTrackState& trk) {
   return pass;
 }
 
-Bool_t PassPhiDaughterTofPid(Float_t pMag, Bool_t tofMatch, Float_t mass2, Float_t deltaOneOverBeta) {
+Bool_t PassPhiDaughterTofPid(Float_t pMag, Bool_t tofMatch, Float_t mass2, Float_t deltaOneOverBeta,
+                             Short_t charge) {
   const PIDCutConfig& pid = ConfigManager::GetInstance().GetPIDCuts();
   phi_daughter_pid::Cuts cuts;
   cuts.pMomKaonPID = pid.pMomKaonPID;
   cuts.tofUseMass2Cut = pid.tofUseMass2Cut;
   cuts.tofUseDeltaInvBetaCut = pid.tofUseDeltaInvBetaCut;
+  cuts.requireTofForNegative = pid.phiDaughterKaonMinusRequireTof;
   cuts.minMass2Kaon = pid.minMass2Kaon;
   cuts.maxMass2Kaon = pid.maxMass2Kaon;
   cuts.maxAbsDeltaOneOverBetaKaon = pid.maxAbsDeltaOneOverBetaKaon;
-  return phi_daughter_pid::Pass(pMag, tofMatch, mass2, deltaOneOverBeta, cuts);
+  return phi_daughter_pid::Pass(pMag, tofMatch, mass2, deltaOneOverBeta, charge, cuts);
 }
 
 Bool_t PassPairTofCut(const PhiKkTrackState& kPlus, const PhiKkTrackState& kMinus) {
   const Float_t pKplus = TrackMomentum(kPlus).Mag();
   const Float_t pKminus = TrackMomentum(kMinus).Mag();
-  return PassPhiDaughterTofPid(pKplus, kPlus.tofMatch, kPlus.mass2, kPlus.deltaOneOverBeta) &&
-         PassPhiDaughterTofPid(pKminus, kMinus.tofMatch, kMinus.mass2, kMinus.deltaOneOverBeta);
+  return PassPhiDaughterTofPid(pKplus, kPlus.tofMatch, kPlus.mass2, kPlus.deltaOneOverBeta, kPlus.charge) &&
+         PassPhiDaughterTofPid(pKminus, kMinus.tofMatch, kMinus.mass2, kMinus.deltaOneOverBeta, kMinus.charge);
 }
 
 void FillTofInfo(Float_t& mass2, Float_t& deltaOneOverBeta, Bool_t& tofMatch, StPicoBTofPidTraits* tof,

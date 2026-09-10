@@ -20,6 +20,8 @@ endif
 ROOTCFLAGS_RAW := $(shell $(ROOT_CONFIG) --cflags)
 ROOTLDFLAGS_RAW := $(shell $(ROOT_CONFIG) --ldflags)
 ROOTLIBS := $(shell $(ROOT_CONFIG) --libs)
+ROOT_LIB_DIR := $(shell $(ROOT_CONFIG) --libdir)
+ROOT_PREFIX := $(shell $(ROOT_CONFIG) --prefix)
 ROOT_ARCH_FLAG := $(filter -m32 -m64,$(ROOTCFLAGS_RAW))
 
 # Build architecture: auto/32/64 (pass e.g. make BUILD_BITS=64)
@@ -97,6 +99,8 @@ STAR_LIB_DIR := $(STAR_OBJ)/lib
 
 COMMON_DIR := StMaker/common
 RMC_DIR := StRoot/StRefMultCorr
+KFP_DIR := StRoot/KFParticle
+KF_HELPER_DIR := StMaker/kfparticle
 LIB_DIR := lib
 YAML_CPP_DIR := src/third_party/yaml-cpp
 YAML_CPP_BUILD := $(YAML_CPP_DIR)/build
@@ -117,7 +121,7 @@ STAR_ANA_CONFIG_SRCS := src/ConfigManager.cpp src/YamlParser.cpp src/HistManager
   src/cuts/EventCutConfig.cpp src/cuts/TrackCutConfig.cpp src/cuts/PIDCutConfig.cpp \
   src/cuts/V0CutConfig.cpp src/cuts/PhiCutConfig.cpp src/cuts/LambdaCutConfig.cpp \
   src/cuts/Lambda1520CutConfig.cpp src/cuts/Sigma1385CutConfig.cpp src/cuts/NuclearIdCutConfig.cpp src/cuts/MixingConfig.cpp \
-  src/cuts/CentralityCutConfig.cpp src/cuts/FemtoConfig.cpp src/cuts/PhiMesicNucleusConfig.cpp
+  src/cuts/CentralityCutConfig.cpp src/cuts/FemtoConfig.cpp src/cuts/PhiMesicNucleusConfig.cpp src/cuts/KfParticleCutConfig.cpp
 STAR_ANA_CONFIG_OBJS := $(addprefix $(LIB_DIR)/,$(notdir $(STAR_ANA_CONFIG_SRCS:.cpp=.o)))
 CXXFLAGS_CONFIG := $(ARCH_FLAGS) -O2 -Wall -fPIC -std=c++11 $(ROOTCFLAGS) -Iinclude -I$(YAML_CPP_DIR)/include
 LDFLAGS_CONFIG := $(ARCH_FLAGS) $(ROOTLDFLAGS) -shared -Wl,--whole-archive -L$(YAML_CPP_BUILD) -lyaml-cpp -Wl,--no-whole-archive
@@ -128,9 +132,28 @@ RMC_OBJS := $(LIB_DIR)/StRefMultCorr.o $(LIB_DIR)/CentralityMaker.o $(LIB_DIR)/P
 CXXFLAGS_RMC := $(ARCH_FLAGS) -O2 -Wall -fPIC -std=c++11 $(ROOTCFLAGS) -IStRoot -I$(RMC_DIR)
 LDFLAGS_RMC := $(ARCH_FLAGS) $(ROOTLDFLAGS) -shared
 
+# --- coherent full KFParticle core, isolated in star_analyzer_kfp ---
+# Do not apply these ABI/STAR/SIMD flags to the existing core analyses.
+KFP_NAMES := KFParticle KFPTrack KFPVertex KFParticleDatabase KFVertex \
+  KFPTrackVector KFPEmcCluster KFParticleSIMD KFParticlePVReconstructor \
+  KFParticleFinder KFParticleTopoReconstructor
+KFP_SRCS := $(addprefix $(KFP_DIR)/,$(addsuffix .cxx,$(KFP_NAMES)))
+KFP_OBJS := $(patsubst $(KFP_DIR)/%.cxx,$(LIB_DIR)/kfp_%.o,$(KFP_SRCS))
+KFP_HEADERS := $(wildcard $(KFP_DIR)/*.h $(KFP_DIR)/KFPSimd/*.h $(KFP_DIR)/KFPSimd/*/*.h)
+KFP_ABI_FLAGS := -std=c++11 -msse4.1 -D__ROOT__ -DKFParticleStandalone -DHomogeneousField=
+KFP_STAR_INC := -I$(STAR)/StRoot/StarRoot -I$(STAR)/StRoot/StBichsel
+CXXFLAGS_KFP := $(ARCH_FLAGS) -O2 -Wall -fPIC $(ROOTCFLAGS) -I$(KFP_DIR) $(KFP_STAR_INC) $(STAR_INC) $(KFP_ABI_FLAGS)
+LDFLAGS_KFP := $(ARCH_FLAGS) $(ROOTLDFLAGS) -shared -Wl,--no-undefined -Wl,-rpath,$(STAR_LIB_DIR)
+# StarRoot does not encode these ROOT dependencies in DT_NEEDED; match rootlogon.C.
+KFP_ROOT_EXTRA_LIBS := -lTable -lGeom -lEG
+KF_HELPER_SRCS := $(wildcard $(KF_HELPER_DIR)/*.cxx)
+KF_HELPER_OBJS := $(patsubst $(KF_HELPER_DIR)/%.cxx,$(LIB_DIR)/kfhelper_%.o,$(KF_HELPER_SRCS))
+KF_HELPER_HEADERS := $(wildcard $(KF_HELPER_DIR)/*.h)
+
 # --- Maker / common flags ---
 CXXFLAGS_MAKER := $(ARCH_FLAGS) -O2 -Wall -fPIC $(ROOTCFLAGS) -Iinclude -IStRoot -I$(COMMON_DIR) -I$(RMC_DIR) $(STAR_INC)
 LDFLAGS_MAKER := $(ARCH_FLAGS) $(ROOTLDFLAGS) -shared -Wl,-rpath,$(STAR_LIB_DIR)
+CXXFLAGS_KF_HELPER := -I$(KFP_DIR) -I$(KF_HELPER_DIR) -I$(YAML_CPP_DIR)/include $(KFP_STAR_INC) $(CXXFLAGS_MAKER) $(KFP_ABI_FLAGS)
 
 # --- libStCommon (StMaker/common helpers) ---
 COMMON_SRCS := $(wildcard $(COMMON_DIR)/*.cxx)
@@ -141,14 +164,36 @@ LIB_COMMON_NAME := libStCommon.so
 MAKER_DIRS := $(wildcard StMaker/St*Maker)
 MAKER_NAMES := $(notdir $(MAKER_DIRS))
 MAKER_LIBS := $(patsubst %,$(LIB_DIR)/lib%.so,$(MAKER_NAMES))
+CORE_MAKER_NAMES := $(filter-out StLambdaKFParticleMaker StXiKFParticleMaker,$(MAKER_NAMES))
+CORE_MAKER_LIBS := $(patsubst %,$(LIB_DIR)/lib%.so,$(CORE_MAKER_NAMES))
+
+MAKER_EXTRA_DEPS_StLambdaKFParticleMaker := $(LIB_DIR)/libKFParticle.so $(LIB_DIR)/libStKfParticleCommon.so
+MAKER_EXTRA_CXXFLAGS_StLambdaKFParticleMaker := -I$(KFP_DIR) -I$(KF_HELPER_DIR) $(KFP_STAR_INC) $(KFP_ABI_FLAGS) -MMD -MP
+MAKER_EXTRA_LDLIBS_StLambdaKFParticleMaker := -lStKfParticleCommon -lKFParticle
+
+MAKER_EXTRA_DEPS_StXiKFParticleMaker := $(LIB_DIR)/libKFParticle.so $(LIB_DIR)/libStKfParticleCommon.so
+MAKER_EXTRA_CXXFLAGS_StXiKFParticleMaker := -I$(KFP_DIR) -I$(KF_HELPER_DIR) $(KFP_STAR_INC) $(KFP_ABI_FLAGS) -MMD -MP
+MAKER_EXTRA_LDLIBS_StXiKFParticleMaker := -lStKfParticleCommon -lKFParticle
 
 TEST_FEMTO_MIXING_SAMPLER := $(LIB_DIR)/test_femto_mixing_sampler
 TEST_PHI_DAUGHTER_PID := $(LIB_DIR)/test_phi_daughter_pid
 TEST_PHI_MIX_SAMPLER := $(LIB_DIR)/test_phi_mix_sampler
+TEST_KFP_FULL_CHAIN := $(LIB_DIR)/test_kfparticle_full_chain.so
+TEST_KFP_PICO_ADAPTER := $(LIB_DIR)/test_kfparticle_pico_adapter.so
+KF_TEST_CUTS ?= config/cuts/kf/kf_auau19_anaLambda_KFParticle.yaml
+# singularity_make selects the compiler/ROOT binary but does not source the
+# complete run environment. Resolve the same ROOT's loader path for tests only.
+KF_TEST_RUNTIME = env ROOTSYS="$(ROOT_PREFIX)" LD_LIBRARY_PATH="$(abspath $(LIB_DIR)):$(STAR_LIB_DIR):$(ROOT_LIB_DIR):$${KF_TEST_RUNTIME_LIBRARY_PATH:-$${LD_LIBRARY_PATH:-}}"
 
-.PHONY: all clean test-femto-mixing-sampler test-phi-daughter-pid test-phi-mix-sampler
+.PHONY: all base-libs core kfparticle-analysis clean test-femto-mixing-sampler test-phi-daughter-pid test-phi-mix-sampler test-kfparticle-full-chain test-kfparticle-pico-adapter
 
-all: $(LIB_DIR)/libStarAnaConfig.so $(LIB_DIR)/$(LIB_RMC_NAME) $(LIB_DIR)/$(LIB_COMMON_NAME) $(MAKER_LIBS)
+all: core kfparticle-analysis
+
+base-libs: $(LIB_DIR)/libStarAnaConfig.so $(LIB_DIR)/$(LIB_RMC_NAME) $(LIB_DIR)/$(LIB_COMMON_NAME)
+
+core: base-libs $(CORE_MAKER_LIBS)
+
+kfparticle-analysis: base-libs $(LIB_DIR)/libKFParticle.so $(LIB_DIR)/libStKfParticleCommon.so $(LIB_DIR)/libStLambdaKFParticleMaker.so $(LIB_DIR)/libStXiKFParticleMaker.so
 
 test-femto-mixing-sampler: $(TEST_FEMTO_MIXING_SAMPLER)
 	$(TEST_FEMTO_MIXING_SAMPLER)
@@ -168,6 +213,20 @@ test-phi-mix-sampler: $(TEST_PHI_MIX_SAMPLER)
 $(TEST_PHI_MIX_SAMPLER): tests/test_phi_mix_sampler.cpp include/FemtoPhiMixSampler.h include/FemtoMixingSampler.h | $(LIB_DIR)
 	$(CXX) $(ARCH_FLAGS) -O2 -Wall -std=c++11 -Iinclude $< -o $@
 
+# A genuine Topo/Finder test, not the retired scalar pair helper.
+test-kfparticle-full-chain: $(TEST_KFP_FULL_CHAIN)
+	$(KF_TEST_RUNTIME) root4star -b -q 'tests/bootstrap_kfparticle_tests.C("full-chain")'
+
+$(TEST_KFP_FULL_CHAIN): tests/kfparticle_full_chain.cxx $(LIB_DIR)/libKFParticle.so $(KFP_HEADERS) Makefile | $(LIB_DIR)
+	$(CXX) $(CXXFLAGS_KFP) -DSTAR_ANALYZER_KFP_ROOT_TEST -shared -Wl,--no-undefined $< -o $@ -L$(LIB_DIR) -lKFParticle -L$(STAR_LIB_DIR) -lStarRoot $(KFP_ROOT_EXTRA_LIBS) -Wl,-rpath,$(abspath $(LIB_DIR)) -Wl,-rpath,$(STAR_LIB_DIR) $(ROOTLIBS)
+
+# Actual SL24y Pico event/track/covariance/TOF fixtures through the adapter.
+test-kfparticle-pico-adapter: $(TEST_KFP_PICO_ADAPTER)
+	$(KF_TEST_RUNTIME) root4star -b -q 'tests/bootstrap_kfparticle_tests.C("pico-adapter","$(KF_TEST_CUTS)")'
+
+$(TEST_KFP_PICO_ADAPTER): tests/kfparticle_pico_adapter.cxx tests/kfparticle_event_selection.h $(LIB_DIR)/libStKfParticleCommon.so $(LIB_DIR)/libStarAnaConfig.so $(LIB_DIR)/libKFParticle.so $(KFP_HEADERS) $(KF_HELPER_HEADERS) include/cuts/KfParticleCutConfig.h Makefile | $(LIB_DIR)
+	$(CXX) $(CXXFLAGS_KF_HELPER) -DSTAR_ANALYZER_KFP_ROOT_TEST -shared -Wl,--no-undefined $< -o $@ -L$(LIB_DIR) -lStKfParticleCommon -lStarAnaConfig -lKFParticle $(STAR_LDFLAGS) -lStEvent -lStarRoot -lStBichsel $(KFP_ROOT_EXTRA_LIBS) -Wl,-rpath,$(abspath $(LIB_DIR)) -Wl,-rpath,$(STAR_LIB_DIR) $(ROOTLIBS)
+
 # Build yaml-cpp via CMake (static lib, must match STAR/ROOT bitness)
 $(YAML_CPP_BUILD)/libyaml-cpp.a:
 	@mkdir -p $(YAML_CPP_BUILD)
@@ -180,7 +239,7 @@ $(LIB_DIR):
 $(LIB_DIR)/libStarAnaConfig.so: $(LIB_DIR) $(YAML_CPP_BUILD)/libyaml-cpp.a $(STAR_ANA_CONFIG_OBJS)
 	$(CXX) $(LDFLAGS_CONFIG) -o $@ $(STAR_ANA_CONFIG_OBJS) $(ROOTLIBS)
 
-$(LIB_DIR)/ConfigManager.o: src/ConfigManager.cpp include/ConfigManager.h
+$(LIB_DIR)/ConfigManager.o: src/ConfigManager.cpp include/ConfigManager.h include/cuts/KfParticleCutConfig.h
 	$(CXX) $(CXXFLAGS_CONFIG) -c src/ConfigManager.cpp -o $@
 $(LIB_DIR)/YamlParser.o: src/YamlParser.cpp include/YamlParser.h
 	$(CXX) $(CXXFLAGS_CONFIG) -c src/YamlParser.cpp -o $@
@@ -210,6 +269,15 @@ $(LIB_DIR)/FemtoConfig.o: src/cuts/FemtoConfig.cpp include/cuts/FemtoConfig.h
 	$(CXX) $(CXXFLAGS_CONFIG) -c src/cuts/FemtoConfig.cpp -o $@
 $(LIB_DIR)/PhiMesicNucleusConfig.o: src/cuts/PhiMesicNucleusConfig.cpp include/cuts/PhiMesicNucleusConfig.h
 	$(CXX) $(CXXFLAGS_CONFIG) -c src/cuts/PhiMesicNucleusConfig.cpp -o $@
+$(LIB_DIR)/KfParticleCutConfig.o: src/cuts/KfParticleCutConfig.cpp include/cuts/KfParticleCutConfig.h
+	$(CXX) $(CXXFLAGS_CONFIG) -c src/cuts/KfParticleCutConfig.cpp -o $@
+
+# libKFParticle.so (all 11 reconstruction units; no global KFParticle exports)
+$(LIB_DIR)/libKFParticle.so: $(KFP_OBJS) | $(LIB_DIR)
+	$(CXX) $(LDFLAGS_KFP) -o $@ $(KFP_OBJS) -L$(STAR_LIB_DIR) -lStarRoot $(KFP_ROOT_EXTRA_LIBS) $(ROOTLIBS)
+
+$(LIB_DIR)/kfp_%.o: $(KFP_DIR)/%.cxx $(KFP_HEADERS) Makefile | $(LIB_DIR)
+	$(CXX) $(CXXFLAGS_KFP) -MMD -MP -c $< -o $@
 
 # libStRefMultCorr.so (no rootcint dict; used from compiled Makers only)
 $(LIB_DIR)/$(LIB_RMC_NAME): $(LIB_DIR) $(RMC_OBJS)
@@ -236,18 +304,29 @@ $(LIB_DIR)/common_%.o: $(COMMON_DIR)/%.cxx $(COMMON_DIR)/%.h | $(LIB_DIR)
 # Extra header-only dependency for nuclear ID calibration tables
 $(LIB_DIR)/common_StNuclearIdHelper.o: $(COMMON_DIR)/NuclearIdDeDxVsMom.h
 
+# KF-only PicoDst adapter; intentionally excluded from libStCommon.so
+$(LIB_DIR)/kfhelper_%.o: $(KF_HELPER_DIR)/%.cxx $(KF_HELPER_HEADERS) $(KFP_HEADERS) include/cuts/KfParticleCutConfig.h Makefile | $(LIB_DIR)
+	$(CXX) $(CXXFLAGS_KF_HELPER) -MMD -MP -c $< -o $@
+
+$(LIB_DIR)/libStKfParticleCommon.so: $(KF_HELPER_OBJS) $(LIB_DIR)/libKFParticle.so $(LIB_DIR)/libStarAnaConfig.so
+	$(CXX) $(LDFLAGS_MAKER) -Wl,--no-undefined -o $@ $(KF_HELPER_OBJS) -L$(LIB_DIR) -lKFParticle -lStarAnaConfig -Wl,-rpath,$(abspath $(LIB_DIR)) $(STAR_LDFLAGS) -lStEvent -lStarRoot -lStBichsel $(ROOTLIBS)
+
 # Per-maker compile + link (directory name == class name == lib basename)
 define MAKER_RULE
 $(LIB_DIR)/$(1).o: StMaker/$(1)/$(1).cxx StMaker/$(1)/$(1).h | $(LIB_DIR)
-	$$(CXX) $$(CXXFLAGS_MAKER) -c $$< -o $$@
+	$$(CXX) $$(MAKER_EXTRA_CXXFLAGS_$(1)) $$(CXXFLAGS_MAKER) -c $$< -o $$@
 
-$(LIB_DIR)/lib$(1).so: $(LIB_DIR)/$(1).o $(LIB_DIR)/$(LIB_COMMON_NAME) $(LIB_DIR)/libStarAnaConfig.so $(LIB_DIR)/$(LIB_RMC_NAME)
-	$$(CXX) $$(LDFLAGS_MAKER) -o $$@ $$< -L$$(LIB_DIR) -lStarAnaConfig -lStRefMultCorr -lStCommon -Wl,-rpath,$$(abspath $$(LIB_DIR)) $$(STAR_LDFLAGS) $$(ROOTLIBS)
+$(LIB_DIR)/lib$(1).so: $(LIB_DIR)/$(1).o $(LIB_DIR)/$(LIB_COMMON_NAME) $(LIB_DIR)/libStarAnaConfig.so $(LIB_DIR)/$(LIB_RMC_NAME) $$(MAKER_EXTRA_DEPS_$(1))
+	$$(CXX) $$(LDFLAGS_MAKER) -o $$@ $$< -L$$(LIB_DIR) -lStarAnaConfig -lStRefMultCorr -lStCommon $$(MAKER_EXTRA_LDLIBS_$(1)) -Wl,-rpath,$$(abspath $$(LIB_DIR)) $$(STAR_LDFLAGS) $$(ROOTLIBS)
 endef
 
 $(foreach maker,$(MAKER_NAMES),$(eval $(call MAKER_RULE,$(maker))))
 
+# Rebuild the entire KF ABI together after local header/flag changes.
+$(LIB_DIR)/StLambdaKFParticleMaker.o: $(KFP_HEADERS) $(KF_HELPER_HEADERS) include/cuts/KfParticleCutConfig.h Makefile
+-include $(KFP_OBJS:.o=.d) $(KF_HELPER_OBJS:.o=.d) $(LIB_DIR)/StLambdaKFParticleMaker.d
+
 clean:
-	rm -f $(LIB_DIR)/*.o $(LIB_DIR)/*.so
-	rm -f $(TEST_FEMTO_MIXING_SAMPLER) $(TEST_PHI_DAUGHTER_PID) $(TEST_PHI_MIX_SAMPLER)
+	rm -f $(LIB_DIR)/*.o $(LIB_DIR)/*.so $(LIB_DIR)/kfp_*.d $(LIB_DIR)/kfhelper_*.d $(LIB_DIR)/StLambdaKFParticleMaker.d
+	rm -f $(TEST_FEMTO_MIXING_SAMPLER) $(TEST_PHI_DAUGHTER_PID) $(TEST_PHI_MIX_SAMPLER) $(TEST_KFP_FULL_CHAIN) $(TEST_KFP_PICO_ADAPTER)
 	rm -rf $(YAML_CPP_BUILD)

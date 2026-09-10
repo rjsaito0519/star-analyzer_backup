@@ -20,6 +20,7 @@ class MixingConfig;
 class CentralityCutConfig;
 class FemtoConfig;
 class PhiMesicNucleusConfig;
+class KfParticleCutConfig;
 
 class ConfigManager {
 public:
@@ -40,6 +41,7 @@ public:
   V0CutConfig& GetV0Cuts();
   PhiCutConfig& GetPhiCuts();
   LambdaCutConfig& GetLambdaCuts();
+  KfParticleCutConfig& GetKfParticleCuts();
   Lambda1520CutConfig& GetLambda1520Cuts();
   Sigma1385CutConfig& GetSigma1385Cuts();
   NuclearIdCutConfig& GetNuclearIdCuts();
@@ -65,6 +67,7 @@ private:
   V0CutConfig* v0Cuts;
   PhiCutConfig* phiCuts;
   LambdaCutConfig* lambdaCuts;
+  KfParticleCutConfig* kfParticleCuts;
   Lambda1520CutConfig* lambda1520Cuts;
   Sigma1385CutConfig* sigma1385Cuts;
   NuclearIdCutConfig* nuclearIdCuts;
@@ -82,3 +85,4 @@ private:
 };
 
 #endif
+

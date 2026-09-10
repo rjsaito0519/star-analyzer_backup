@@ -810,28 +810,25 @@ Bool_t StFemtoMaker::PassTofKaonPid(const TrackState& trk) const {
 
 Bool_t StFemtoMaker::PassPhiDaughterTofPid(const TrackState& trk) const {
   const Float_t pMag = (Float_t)TrackMomentum(trk).Mag();
-  return StPhiKKReconstruction::PassPhiDaughterTofPid(pMag, trk.tofMatch, trk.mass2, trk.deltaOneOverBeta);
+  return StPhiKKReconstruction::PassPhiDaughterTofPid(pMag, trk.tofMatch, trk.mass2, trk.deltaOneOverBeta,
+                                                      trk.charge);
 }
 
 Bool_t StFemtoMaker::PassPhiDaughterTofPid(const FemtoCandidate& cand) const {
   const TLorentzVector p4 = CandidateP4(cand);
   return StPhiKKReconstruction::PassPhiDaughterTofPid((Float_t)p4.P(), cand.trk.tofMatch, cand.trk.mass2,
-                                                      cand.trk.deltaOneOverBeta);
+                                                      cand.trk.deltaOneOverBeta, cand.charge);
 }
 
 Bool_t StFemtoMaker::PassTofProtonPid(const TrackState& trk) const {
-  const PIDCutConfig& pid = ConfigManager::GetInstance().GetPIDCuts();
-  if (!pid.requireTOF) return kTRUE;
-  if (!trk.tofMatch) {
-    TString fallbackMode(pid.tofFallbackMode.c_str());
-    fallbackMode.ToLower();
-    if (fallbackMode == "tpconly") return kTRUE;
-    return kFALSE;
-  }
-  if (pid.tofUseMass2Cut) {
-    return (trk.mass2 >= pid.minMass2Proton && trk.mass2 <= pid.maxMass2Proton);
-  }
-  return kTRUE;
+  // Bachelor proton TOF rule from FemtoConfig (not global PIDCutConfig.requireTOF).
+  // |p| < protonTofMomentumThreshold: TPC-only (no TOF match, no m2 veto if matched).
+  // |p| >= threshold: TOF match required and protonMinMass2 <= m2 <= protonMaxMass2.
+  const FemtoConfig& fc = ConfigManager::GetInstance().GetFemtoConfig();
+  const Double_t pmom = TrackMomentum(trk).Mag();
+  if (pmom < fc.protonTofMomentumThreshold) return kTRUE;
+  if (!trk.tofMatch) return kFALSE;
+  return (trk.mass2 >= fc.protonMinMass2 && trk.mass2 <= fc.protonMaxMass2);
 }
 
 Bool_t StFemtoMaker::IsKaon(const TrackState& trk) { return PassTofKaonPid(trk); }
@@ -1222,13 +1219,8 @@ Bool_t StFemtoMaker::PassFemtoProtonCuts(const TrackState& trk) const {
   if (trk.nHitsMax <= 0) return kFALSE;
   if ((Float_t)trk.nHitsFit / (Float_t)trk.nHitsMax < fc.protonMinNHitsRatio) return kFALSE;
 
-  TVector3 p = TrackMomentum(trk);
-  Double_t pmom = p.Mag();
-  const Bool_t passTofRule =
-      (pmom < fc.protonTofMomentumThreshold) ||
-      (pmom > fc.protonTofMomentumThreshold && trk.tofMatch && trk.mass2 >= fc.protonMinMass2 &&
-       trk.mass2 <= fc.protonMaxMass2);
-  if (!passTofRule) return kFALSE;
+  // Single TOF/m2 gate (same as IsProton -> PassTofProtonPid). Avoids double rules.
+  if (!PassTofProtonPid(trk)) return kFALSE;
 
   if (trk.pT < fc.protonMinPtPair || trk.pT > fc.protonMaxPtPair) return kFALSE;
   Double_t yCm = ProtonRapidityCm(trk);

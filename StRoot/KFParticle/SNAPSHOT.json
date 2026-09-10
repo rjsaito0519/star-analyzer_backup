@@ -1,0 +1,184 @@
+{
+  "build_defines": [
+    "__ROOT__",
+    "KFParticleStandalone",
+    "HomogeneousField"
+  ],
+  "files": {
+    "KFPEmcCluster.cxx": {
+      "upstream_sha256": "a7d5e6a8bf8a4e48f0c832dca6b858327cd1ee3b3fbd2ff8354ecdb1889b595e",
+      "vendored_sha256": "42a467f4bc8d86b908cb99fefceb6a296ec72ce6221993b3bc3bbaca19ac8ccc"
+    },
+    "KFPEmcCluster.h": {
+      "upstream_sha256": "96c57e0057278835bbb761b0a82636f7886e19932c46a081390e7d376c611576",
+      "vendored_sha256": "7778c1de98fa4d93ca9347908f3827fccfb0d057719fd08ce0bfc0b44cbd1ca6"
+    },
+    "KFPInputData.h": {
+      "upstream_sha256": "02095a86b38469e7890a281a1ac94711f324291cb471d4f879d32e404fe59d23",
+      "vendored_sha256": "d074af4f191aebbc55993ded899af2438398e6bfb671e48e8ce1a16f67d30fd0"
+    },
+    "KFPSimd/COPYING": {
+      "upstream_sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+      "vendored_sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+    },
+    "KFPSimd/SSE/constants.h": {
+      "upstream_sha256": "d1aaad601b280924d25aa7d4e6e178338ff099c8a8076f621166a5987a8f7148",
+      "vendored_sha256": "cebcdf8d1436cbcd9e07dc12410f22207f3faf407dae052380bd57e2866ee166"
+    },
+    "KFPSimd/SSE/float32.h": {
+      "upstream_sha256": "ec2234794f6a846648cf05ff25f43d8a01dc828f8a066020de4deea51e831015",
+      "vendored_sha256": "9b8950a8ccb43950a6f1c188d69f94d83381fae8604397a91520e92dc4dc91c3"
+    },
+    "KFPSimd/SSE/int32.h": {
+      "upstream_sha256": "cea683ec3184bfc1eff4d2cc055e52d5eec3647421896ae68ea7286f2a514a17",
+      "vendored_sha256": "abfe10b306150bdf2f13a60b19b8e84f9c32acc767ed6540faf3c1aafd112956"
+    },
+    "KFPSimd/SSE/mask32.h": {
+      "upstream_sha256": "2e741557557f551252b477d1a6f0ae995a6fd5ff8b36c2a1c18e5fe7c3067ec3",
+      "vendored_sha256": "67cd988be24552aefdf2f26fb5626c3e99d69e105dabfceed52fc48c61d46806"
+    },
+    "KFPSimd/SSE/types.h": {
+      "upstream_sha256": "015be3320ddf620aea6686700a9037ad60b1236f3f1da6fbaab3127a77917aa0",
+      "vendored_sha256": "b67dfe3d9f4ebf0df0c41a4b1d82348e018c16d460e1dfc74d275661613bdae2"
+    },
+    "KFPSimd/Utils/macros.h": {
+      "upstream_sha256": "77c3604e49b309b1223be7084facc328cd631d374eafe95af0fc7aa39c7f1799",
+      "vendored_sha256": "022df5ea02b67162afd499340c19ea1c938f2f85b79f759b75b5717572a90d09"
+    },
+    "KFPSimd/Utils/memory.h": {
+      "upstream_sha256": "f9b02fb3a404eeffd1c6a95f3d6e843e2e5f808af2ce07e858c7395ef8cd6ae0",
+      "vendored_sha256": "6b5ff3f2fb19468e330c867364208687ade7c878a0db3a088406aa862e4496ca"
+    },
+    "KFPSimd/Utils/simd_detect.h": {
+      "upstream_sha256": "3a266b73ba9007f9a5b3c672ea164d47067f677f0304c74b686aaf7c36f6c642",
+      "vendored_sha256": "c029e8a71ac8e1a8abffc530abeb5c474a5e1af76346b6239bb14a5ac3f1ef49"
+    },
+    "KFPSimd/Utils/tag.h": {
+      "upstream_sha256": "27d8ed35c1ee4f00da8d29e555b5bbc71794b47090d3c1e1192c1404b8236ec0",
+      "vendored_sha256": "89fd9ba2d5fef4f52c7796b70b9e3c402a62b83db8ee055c8ddc7de997ae37bc"
+    },
+    "KFPSimd/compile_flags.txt": {
+      "upstream_sha256": "938ac1b6aa0d51416aea4dd8fe0e86a22ac3c1f7c0b8c65cafe7577ab106ca05",
+      "vendored_sha256": "938ac1b6aa0d51416aea4dd8fe0e86a22ac3c1f7c0b8c65cafe7577ab106ca05"
+    },
+    "KFPSimd/simd.h": {
+      "upstream_sha256": "017dbe309e405b4b63cbf1aafd51e419f8d039720418f52837aa7e30b2bb9105",
+      "vendored_sha256": "ab627a8776be957336a26f8415fada2e9ed788082d788dfa4d113604bed68f39"
+    },
+    "KFPSimdAllocator.h": {
+      "upstream_sha256": "0dd99ae8fb4d22c9514911230803cb308bb648abe1415b3322d974e4580d68d3",
+      "vendored_sha256": "3c7553d5a1b2a01017f6ef4fd1ae8a8cac7c316cb5278e6ffbc3bc5236daa39a"
+    },
+    "KFPTrack.cxx": {
+      "upstream_sha256": "0523fbfb49a27613c485104cfc6c866afe9207f998dc3f143d71ec0e92e2f912",
+      "vendored_sha256": "8e724d948c88e89003f4269b51cea7f32ad2bdd0ae3862dd56a86150074bd821"
+    },
+    "KFPTrack.h": {
+      "upstream_sha256": "926bbbe6522d4d8f6e2d4fef41a60237e9cb1c16375b80e8612fc44321827c50",
+      "vendored_sha256": "a59a9e6e620dccb14f9c486461ab82bfe3fddd5a7c00522eaa4a2f0421bc1435"
+    },
+    "KFPTrackVector.cxx": {
+      "upstream_sha256": "541942171cc816590d980f2dbd411cc0d490cf28dbac013f669bf9ef7ab700a9",
+      "vendored_sha256": "77f380657137415101a3f1815ca4edc5f3dba7ecf704a028f048d53a19d55035"
+    },
+    "KFPTrackVector.h": {
+      "upstream_sha256": "75cea57879c4dd21aa6b351a99c2b80cf61b7161f17e21b887d08bd344ed6363",
+      "vendored_sha256": "22871aa65f601ac3096b2c606290540d679d7b9b82df4132b2f46178c426d8b4"
+    },
+    "KFPVertex.cxx": {
+      "upstream_sha256": "e5a98482c606569e65ca4c6346c70f6e1278c012de824284d5030f72ffc6e145",
+      "vendored_sha256": "ddb59c1a9291ef5a22ca7e27746cde91e4e7a29d80f47c82a1a71efab1809616"
+    },
+    "KFPVertex.h": {
+      "upstream_sha256": "edb923c5cca0249f129f541d44a206b1b40cd0a9256d8cfae58a546d03b0d38d",
+      "vendored_sha256": "0bc8ffec15d26404c87e3f23c3e5432c9c7e3aca277867ad2d04c58835ad2b18"
+    },
+    "KFParticle.cxx": {
+      "upstream_sha256": "b64c756ee6fdfc6f98114abc506a624f7f7a6fbfcd3d06b949e444922ceee723",
+      "vendored_sha256": "646844a9d9541f6fc4fa03ca186b06a1a933e68d4decf5af2b31c1ac319f31f9"
+    },
+    "KFParticle.h": {
+      "upstream_sha256": "dad86dc808b13f518b092660135aa2bcf7bea177ea3ee2b6d7833cf7a0eaaaf0",
+      "vendored_sha256": "ed86ba9d993c090a3110c059d8ee16332827376b19be7b0de5dd721a2ef0209b"
+    },
+    "KFParticleDatabase.cxx": {
+      "upstream_sha256": "1a28de1ab58ad9d25079cb108703d13599d31fb737298ff6fe1a72771891eeef",
+      "vendored_sha256": "47646198306dee6cc2bcdaea879a11f809c1c468b5c5fdfb63dda4fd5b8caba9"
+    },
+    "KFParticleDatabase.h": {
+      "upstream_sha256": "ce084aba8f80c7f3642269437d8f6106d6de37d1c6b68c4cf6a54eabf38f4817",
+      "vendored_sha256": "93434f8852ac1473b1b32d8000703b36bd93b864c5257ef9ecc609b250fb1be2"
+    },
+    "KFParticleDef.h": {
+      "upstream_sha256": "8057aaf93f77d4f43e3c01a84d641b1ef7c97f057f7ac9079b58cb4972aa6d62",
+      "vendored_sha256": "8758b6fb7e35686c03f03dfe6d36f910fa663353810375efdcf4fd82813bad2a"
+    },
+    "KFParticleField.h": {
+      "upstream_sha256": "a3aa32b01217504fdce19d2672a5b20648a90f3c19a2e5d879ebb5489368cf61",
+      "vendored_sha256": "0f4161c48f923e6742cee55def9bebf613fda222e7f9f141780baa8a870105de"
+    },
+    "KFParticleFinder.cxx": {
+      "upstream_sha256": "85088b2cd92d46c46da76f7698658b35213552aa00bb2fb94ca272d6d682f0a3",
+      "vendored_sha256": "9b1c1a6635afe69c835952d7427de4e84533f74fe7bdd7178cf6500252048fbd"
+    },
+    "KFParticleFinder.h": {
+      "upstream_sha256": "3aa228d36e1f5f5ecb88c8a53f18bf8d686c3b856341f9d63d2f5c68e51351c1",
+      "vendored_sha256": "0f45299f687817c0b77965b028f53a496dd5afa877383db30075a65a49791870"
+    },
+    "KFParticleMath.h": {
+      "upstream_sha256": "ee922eb7e750116f33e2a02b729091179a252db14ce1b05989ea4529372df860",
+      "vendored_sha256": "f31be00cb48da2b18fb579f61f53586d7896ed7be463799129f10a950a533260"
+    },
+    "KFParticlePVReconstructor.cxx": {
+      "upstream_sha256": "e3acf182a001e10b8caa5b500866a55742b0d73ca9cd5d912608b5f95596a2b6",
+      "vendored_sha256": "56d6d2292b83140e4c4ef3b5e93179877f4d3cf9c209e0699f220ae79e44d157"
+    },
+    "KFParticlePVReconstructor.h": {
+      "upstream_sha256": "fcde9590e1f8d4c432f42c38eb4c855b66bc68ffea415d173e11e23fd39acf34",
+      "vendored_sha256": "c53dc4803a508425f2d0e5034a09cfefe4fe5f8b2db67101e6bc818de9088968"
+    },
+    "KFParticleSIMD.cxx": {
+      "upstream_sha256": "9cdcc6095feaafcee2e00ede02e80a073c69a3599b8181e558bdf0a4a991ab1a",
+      "vendored_sha256": "15b4506bf7e1e4fa6819e62cc6c0fa4c8fbdcb27d17048806ba59f9c84bc52a3"
+    },
+    "KFParticleSIMD.h": {
+      "upstream_sha256": "c427b537c1649f3acb57c44a93f84e68930e04575cc3ac2e2d4fe69241b3e89e",
+      "vendored_sha256": "d5d33b7376c104b2a74c9a0f3590e7c2cad86a88b1d5bcd78728385b19fd1508"
+    },
+    "KFParticleTopoReconstructor.cxx": {
+      "upstream_sha256": "6b4bd3277749ad9614cddf1283ff285b0bdbefc65b02e6ef1f8fd01db525a40b",
+      "vendored_sha256": "4f2e6d631f5553fd5854552765863fa83bd351acd036723ae6145205090c1c84"
+    },
+    "KFParticleTopoReconstructor.h": {
+      "upstream_sha256": "01bb204d106f5c1e9f93b2634006cbe18ce7ebc4026872a3f262d9092896b3a3",
+      "vendored_sha256": "99c1991c15cd145b52d69a3ad65b80ffd23e27b121cd6a6797a0197e9221bdeb"
+    },
+    "KFVertex.cxx": {
+      "upstream_sha256": "5b648eec12edb07735739354923f34a03828506462e2c2d9af74d209eb80cad0",
+      "vendored_sha256": "efa06863c9cc983fc96061d0e5e61c91016f660d5a117bcc4e8e8b81fe3f7012"
+    },
+    "KFVertex.h": {
+      "upstream_sha256": "2be3e3d3a53439bf8f41ca68862fe1fa3e48b94a2bffdcc03a5498b59cec49a4",
+      "vendored_sha256": "921ffcb6be36793e55b2ce07afddca73a47c8bc39ac1ab60f47849de51cbbf63"
+    }
+  },
+  "namespace": "star_analyzer_kfp",
+  "simd": "bundled KFPSimd SSE4.1; -msse4.1, not -march=native",
+  "snapshot_date": "2026-09-07",
+  "source": "/direct/star+nfs4/AFS/star/packages/.DEV2/StRoot/KFParticle",
+  "source_id": "033c38b7128ea7cb351a2785a3a65ff0ec2e19e391ca3680d8ffd4d17c27ceb5",
+  "transform": "namespace-guards-and-kfptrack-standalone-dictionary-v2",
+  "translation_units": [
+    "KFParticle.cxx",
+    "KFPTrack.cxx",
+    "KFPVertex.cxx",
+    "KFParticleDatabase.cxx",
+    "KFVertex.cxx",
+    "KFPTrackVector.cxx",
+    "KFPEmcCluster.cxx",
+    "KFParticleSIMD.cxx",
+    "KFParticlePVReconstructor.cxx",
+    "KFParticleFinder.cxx",
+    "KFParticleTopoReconstructor.cxx"
+  ]
+}

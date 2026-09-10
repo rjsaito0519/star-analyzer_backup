@@ -33,6 +33,7 @@ void PIDCutConfig::SetDefaults() {
   maxAbsDeltaOneOverBetaKaon = 0.03;
   tofUseMass2Cut = kTRUE;
   tofUseDeltaInvBetaCut = kFALSE;
+  phiDaughterKaonMinusRequireTof = kTRUE;
   tofFallbackMode = "acceptLowPt";
 }
 
@@ -95,6 +96,10 @@ Bool_t PIDCutConfig::ParseYamlFile(const Char_t* filename) {
   }
   if (values.find("tofUseDeltaInvBetaCut") != values.end()) {
     tofUseDeltaInvBetaCut = YamlParser::ToBool(values["tofUseDeltaInvBetaCut"], tofUseDeltaInvBetaCut);
+  }
+  if (values.find("phiDaughterKaonMinusRequireTof") != values.end()) {
+    phiDaughterKaonMinusRequireTof =
+        YamlParser::ToBool(values["phiDaughterKaonMinusRequireTof"], phiDaughterKaonMinusRequireTof);
   }
   if (values.find("tofFallbackMode") != values.end()) {
     tofFallbackMode = values["tofFallbackMode"];

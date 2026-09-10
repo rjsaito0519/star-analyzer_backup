@@ -498,6 +498,15 @@ void StNuclearIdMaker::WriteHistograms() {
 }
 
 //-----------------------------------------------------------------------------
+
+//-----------------------------------------------------------------------
+void StNuclearIdMaker::FillTrackMerging(Double_t dphiStar, Double_t deta, Int_t type) {
+  if (!m_histManager) return;
+  static const char* kSpecies[] = {"d", "t", "3He", "4He"};
+  if (type < 0 || type > 3) return;
+  m_histManager->Fill(Form("hDphiDeta_proton_%s", kSpecies[type]), dphiStar, deta);
+}
+
 void StNuclearIdMaker::FillKstar(Double_t k_star, Double_t q_lab, Int_t type, Int_t cent9) {
   if (!m_histManager) return;
   static const char* kSpecies[] = {"d", "t", "3He", "4He"};

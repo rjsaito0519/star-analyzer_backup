@@ -5330,9 +5330,13 @@ void checkHistAnaFemtoPhi(const Char_t* inputRootFile,
                  fc.kstarMassFitCfWriteSidecar ? "true" : "false");
   }
   note += "Re-run analysis after hist/Maker changes so new keys exist in the ROOT file.\n";
-  note += "Phi-daughter production PID is charge-independent (PassPhiDaughterTofPid): "
-          "low p allows TPC-only, high p requires TOF. Loose QA remains TPC-based. "
+  note += "Phi-daughter production PID (PassPhiDaughterTofPid): K+ allows TPC-only at low p; "
+          "K- requires TOF (phiDaughterKaonMinusRequireTof, default true). Same predicate for "
+          "real/ROT/MIX. Loose QA remains TPC-based. "
           "hPhiDauPid_* and hPhiDauPidUsed_{real,rot,mix}_* compare K+/K- and real/ROT/MIX.\n";
+  note += "Bachelor proton TOF (PassTofProtonPid / FemtoConfig): |p|<protonTofMomentumThreshold "
+          "TPC-only (no m2 veto); |p|>=threshold requires TOF+m2. Does not use PIDCutConfig.requireTOF. "
+          "dedxOnly: proton threshold 2.0 GeV/c; deuteron threshold 99 (dE/dx-only).\n";
   note += "phi_mix sampling: lazy uniform permutation of production-PID pair indices "
           "(current K+ x buffer K- and buffer K+ x current K- combined). "
           "Cap is stored candidates per current event. No sampling weights. "

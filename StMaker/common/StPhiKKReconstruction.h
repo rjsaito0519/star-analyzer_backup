@@ -44,8 +44,9 @@ Double_t ApplyRapidityFrame(Double_t yLab);
 Bool_t InKaonMass2Window(Float_t mass2);
 /** Collection/fallback TOF filter (tofFallbackMode). Not production pair PID. */
 Bool_t PassTofKaonPid(const PhiKkTrackState& trk);
-/** Production TOF PID for one phi daughter (K+ or K-). Uses full |p|, not pT. */
-Bool_t PassPhiDaughterTofPid(Float_t pMag, Bool_t tofMatch, Float_t mass2, Float_t deltaOneOverBeta);
+/** Production TOF PID for one phi daughter. Uses full |p|, not pT. Charge selects K+/K- TOF policy. */
+Bool_t PassPhiDaughterTofPid(Float_t pMag, Bool_t tofMatch, Float_t mass2, Float_t deltaOneOverBeta,
+                             Short_t charge);
 Bool_t PassPairTofCut(const PhiKkTrackState& kPlus, const PhiKkTrackState& kMinus);
 
 void FillTofInfo(Float_t& mass2, Float_t& deltaOneOverBeta, Bool_t& tofMatch, StPicoBTofPidTraits* tof,

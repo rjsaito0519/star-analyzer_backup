@@ -19,6 +19,8 @@ Creates:
   mainconf/main_{anaName}.yaml  (from mainconf/mainconf.yaml; __ANANAME__ placeholder is replaced)
 If a destination already exists, it is SKIPPED (not overwritten).
 Use --force to overwrite existing files.
+An existing mainconf containing the exact line '# config-generator: manual'
+is protected: generation stops before any writes, including with --force.
 """
 from __future__ import print_function
 import os
@@ -80,10 +82,27 @@ MAKER_DIR = 'maker'
 MAKER_BASE = 'maker'
 MAINCONF_TEMPLATE_REL = 'mainconf/mainconf.yaml'
 MAINCONF_TEMPLATE_ANANAME = '__ANANAME__'
+MANUAL_CONFIG_MARKER = '# config-generator: manual'
+
+
+def guard_manual_mainconf(config_base, ana_name):
+    """Refuse all generation for an explicitly hand-maintained mainconf."""
+    target = os.path.join(config_base, 'mainconf', 'main_{}.yaml'.format(ana_name))
+    if not os.path.isfile(target):
+        return
+    with open(target, 'r') as source:
+        for line in source:
+            if line.rstrip('\r\n') == MANUAL_CONFIG_MARKER:
+                raise RuntimeError(
+                    "Refusing config generation: {} contains '{}'. "
+                    "This configuration is manually maintained; edit its YAML files directly. "
+                    "--force does not override this protection; no files were written."
+                    .format(target, MANUAL_CONFIG_MARKER))
 
 
 def write_mainconf(config_base, ana_name, analysis_rel, force=False):
     """Create mainconf/main_{anaName}.yaml from template, with analysis: -> analysis_rel."""
+    guard_manual_mainconf(config_base, ana_name)
     template_path = os.path.join(config_base, MAINCONF_TEMPLATE_REL)
     mainconf_dir = os.path.join(config_base, 'mainconf')
     mainconf_dst = os.path.join(mainconf_dir, 'main_{}.yaml'.format(ana_name))
@@ -278,6 +297,14 @@ def main():
         mode = get_analysis_field_no_yaml(analysis_path, 'mode')
     if not ana_name:
         print("ERROR: anaName not found in analysis info: {}".format(analysis_path), file=sys.stderr)
+        sys.exit(1)
+
+    # Must precede copies, mode updates and macro generation, not just the
+    # final write_mainconf call. In particular --force must not bypass it.
+    try:
+        guard_manual_mainconf(config_base, ana_name)
+    except (IOError, OSError, RuntimeError) as error:
+        print("ERROR: {}".format(error), file=sys.stderr)
         sys.exit(1)
 
     print("anaName: {}".format(ana_name))

@@ -26,6 +26,7 @@ public:
   Double_t maxAbsDeltaOneOverBetaKaon;
   Bool_t tofUseMass2Cut;
   Bool_t tofUseDeltaInvBetaCut;
+  Bool_t phiDaughterKaonMinusRequireTof;
   std::string tofFallbackMode;
 
   // Set default values

@@ -213,8 +213,11 @@ $MAKE_COMMAND
 EOF
 )
 
+# Preserve the complete setup runtime only for KF tests. Keep the compiler
+# environment inside CONTAINER_CMD unchanged (STAR-only LD_LIBRARY_PATH).
 exec singularity exec \
   --pwd "$PROJECT_ROOT_REAL" \
+  --env KF_TEST_RUNTIME_LIBRARY_PATH="${LD_LIBRARY_PATH:-}" \
   -B /gpfs:/gpfs \
   -B /cvmfs:/cvmfs \
   -B /star/nfs4/AFS:/star/nfs4/AFS \
