@@ -158,7 +158,8 @@ Bool_t StXiKFParticleMaker::PassCandidateCuts(const KfXiCandidate& c) const {
   if (k.maxMassError >= 0. && c.massError > k.maxMassError) return kFALSE;
   if (k.maxChi2Ndf >= 0. && c.chi2Ndf > k.maxChi2Ndf) return kFALSE;
   if (k.maxTopoChi2Ndf >= 0. && c.topoChi2Ndf > k.maxTopoChi2Ndf) return kFALSE;
-  if (k.maxDaughterDistance >= 0. && c.daughterDistance > k.maxDaughterDistance) return kFALSE;
+  if (k.maxDaughterDistance >= 0. && c.daughterDistance >= 0. &&
+      c.daughterDistance > k.maxDaughterDistance) return kFALSE;
   if (k.maxDistanceToPv >= 0. && c.distanceToPv > k.maxDistanceToPv) return kFALSE;
   if (k.minDecayLength >= 0. && c.decayLength < k.minDecayLength) return kFALSE;
   if (k.minDecayLengthSignificance >= 0. && c.decayLengthSignificance < k.minDecayLengthSignificance)
@@ -239,12 +240,22 @@ Int_t StXiKFParticleMaker::Make() {
       stats.covarianceTracks,stats.pidTracks,stats.pidHypotheses,stats.primaryHypotheses,
       stats.finderParticles,stats.xiParticles,stats.invalidXiCandidates,stats.validXiCandidates,0,0};
   for (Int_t i = 0; i < 14; ++i) mStages[i] += increments[i];
+
+  // Intermediate Finder Lambdas reconstructed in the same Topo/Finder pass as Xi.
+  const std::vector<KfLambdaCandidate>& lambdas = mKfInterface->Candidates();
+  for (size_t i = 0; i < lambdas.size(); ++i) {
+    const KfLambdaCandidate& lam = lambdas[i];
+    mHistManager->Fill(lam.pdg > 0 ? "hKfLambdaMassRaw" : "hKfAntiLambdaMassRaw", lam.mass);
+  }
+
   const std::vector<KfXiCandidate>& candidates = mKfInterface->XiCandidates();
   for (size_t i = 0; i < candidates.size(); ++i) {
     const KfXiCandidate& c = candidates[i];
     mHistManager->Fill(c.pdg > 0 ? "hKfXiMassRaw" : "hKfAntiXiMassRaw", c.mass);
     mHistManager->Fill("hKfTopoChi2NdfRaw", c.topoChi2Ndf);
-    mHistManager->Fill("hKfLambdaMassFromXi", c.lambdaMass);
+    if (c.lambdaMass > 0.f) {
+      mHistManager->Fill("hKfLambdaMassFromXi", c.lambdaMass);
+    }
     *mCandidateRow = c;
     mSelected = PassCandidateCuts(c);
     if (mCandidateTree->Fill() < 0) return kStErr;
@@ -254,6 +265,9 @@ Int_t StXiKFParticleMaker::Make() {
     const TVector3 momentum(c.px, c.py, c.pz);
     mHistManager->Fill("hXi_InvMass", c.mass);
     mHistManager->Fill(c.pdg > 0 ? "hKfXiMassSelected" : "hKfAntiXiMassSelected", c.mass);
+    if (c.lambdaMass > 0.f) {
+      mHistManager->Fill("hKfLambdaMassFromXiSelected", c.lambdaMass);
+    }
     mHistManager->Fill("hXi_Pt", momentum.Pt());
     mHistManager->Fill("hXi_Eta", momentum.PseudoRapidity());
     mHistManager->Fill("hDCA12", c.daughterDistance);

@@ -292,6 +292,26 @@ After running the Lambda analysis (locally or after merging batch output), produ
 
 On **AL9**, use **`./script/singularity_checkHistAnaLambda.sh`** with the same arguments (recommended during the SL7→AL9 transition). PDF naming: `share/figure/<anaName>/<anaName>_checkHistAnaLambda[_<jobid>].pdf`. Pages **1b–1d** show centrality QA when `centrality:` is enabled in mainconf and the ROOT file contains the corresponding histograms. Page **1d** shows `hLambda_InvMass_CentBin0`–`8`.
 
+### Result QA (KFParticle Xi): singularity_checkHistAnaXi_KFParticle.sh
+
+After `anaXi_KFParticle` (local smoke or merged batch ROOT):
+
+```bash
+./script/singularity_checkHistAnaXi_KFParticle.sh <root_file> <mainconf_path>
+```
+
+Example:
+
+```bash
+./script/singularity_checkHistAnaXi_KFParticle.sh \
+  rootfile/auau3p9fxt_anaXi_KFParticle_smoke/smoke6.root \
+  config/mainconf/main_auau3p9fxt_anaXi_KFParticle.yaml
+```
+
+Writes `share/figure/<anaName>/<anaName>_checkHistAnaXi_KFParticle[_<jobid>].pdf` (event/KF stages, Xi mass, **intermediate Λ** Finder/FromXi, topology/χ², kinematics). Helix `checkHistAnaXi` does **not** cover these `hKf*` histograms.
+
+Farm dry-run (catalog): set `analysis.nFiles: 100` and `analysis.maxEvents: 10000` in `analysis_info_auau3p9fxt_anaXi_KFParticle.yaml`, then `./script/generate_joblist.sh config/mainconf/main_auau3p9fxt_anaXi_KFParticle.yaml` and submit the resulting `job/joblist/joblist_auau3p9fxt_anaXi_KFParticle.xml`.
+
 ### Result QA (Phi-p femto): checkHistAnaFemtoPhiProton.sh
 
 After merging batch output for `auau3p85fxt_anaFemtoPhiProton` (or any StFemtoMaker analysis using the same checkHist macro):

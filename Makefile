@@ -161,19 +161,20 @@ COMMON_OBJS := $(patsubst $(COMMON_DIR)/%.cxx,$(LIB_DIR)/common_%.o,$(COMMON_SRC
 LIB_COMMON_NAME := libStCommon.so
 
 # --- Auto-discover StMaker/St*Maker -> lib/libSt*Maker.so ---
+# Naming rule: directories matching St*KFParticleMaker are KF analysis makers.
+# Adding StFooKFParticleMaker/ requires no Makefile edit (same EXTRA flags for all).
 MAKER_DIRS := $(wildcard StMaker/St*Maker)
 MAKER_NAMES := $(notdir $(MAKER_DIRS))
 MAKER_LIBS := $(patsubst %,$(LIB_DIR)/lib%.so,$(MAKER_NAMES))
-CORE_MAKER_NAMES := $(filter-out StLambdaKFParticleMaker StXiKFParticleMaker,$(MAKER_NAMES))
+KF_MAKER_NAMES := $(filter %KFParticleMaker,$(MAKER_NAMES))
+KF_MAKER_LIBS := $(patsubst %,$(LIB_DIR)/lib%.so,$(KF_MAKER_NAMES))
+CORE_MAKER_NAMES := $(filter-out %KFParticleMaker,$(MAKER_NAMES))
 CORE_MAKER_LIBS := $(patsubst %,$(LIB_DIR)/lib%.so,$(CORE_MAKER_NAMES))
 
-MAKER_EXTRA_DEPS_StLambdaKFParticleMaker := $(LIB_DIR)/libKFParticle.so $(LIB_DIR)/libStKfParticleCommon.so
-MAKER_EXTRA_CXXFLAGS_StLambdaKFParticleMaker := -I$(KFP_DIR) -I$(KF_HELPER_DIR) $(KFP_STAR_INC) $(KFP_ABI_FLAGS) -MMD -MP
-MAKER_EXTRA_LDLIBS_StLambdaKFParticleMaker := -lStKfParticleCommon -lKFParticle
-
-MAKER_EXTRA_DEPS_StXiKFParticleMaker := $(LIB_DIR)/libKFParticle.so $(LIB_DIR)/libStKfParticleCommon.so
-MAKER_EXTRA_CXXFLAGS_StXiKFParticleMaker := -I$(KFP_DIR) -I$(KF_HELPER_DIR) $(KFP_STAR_INC) $(KFP_ABI_FLAGS) -MMD -MP
-MAKER_EXTRA_LDLIBS_StXiKFParticleMaker := -lStKfParticleCommon -lKFParticle
+# Shared KF link/compile extras for every auto-discovered *KFParticleMaker.
+$(foreach _kf,$(KF_MAKER_NAMES),$(eval MAKER_EXTRA_DEPS_$(_kf) := $(LIB_DIR)/libKFParticle.so $(LIB_DIR)/libStKfParticleCommon.so))
+$(foreach _kf,$(KF_MAKER_NAMES),$(eval MAKER_EXTRA_CXXFLAGS_$(_kf) := -I$(KFP_DIR) -I$(KF_HELPER_DIR) $(KFP_STAR_INC) $(KFP_ABI_FLAGS) -MMD -MP))
+$(foreach _kf,$(KF_MAKER_NAMES),$(eval MAKER_EXTRA_LDLIBS_$(_kf) := -lStKfParticleCommon -lKFParticle))
 
 TEST_FEMTO_MIXING_SAMPLER := $(LIB_DIR)/test_femto_mixing_sampler
 TEST_PHI_DAUGHTER_PID := $(LIB_DIR)/test_phi_daughter_pid
@@ -193,8 +194,7 @@ base-libs: $(LIB_DIR)/libStarAnaConfig.so $(LIB_DIR)/$(LIB_RMC_NAME) $(LIB_DIR)/
 
 core: base-libs $(CORE_MAKER_LIBS)
 
-kfparticle-analysis: base-libs $(LIB_DIR)/libKFParticle.so $(LIB_DIR)/libStKfParticleCommon.so $(LIB_DIR)/libStLambdaKFParticleMaker.so $(LIB_DIR)/libStXiKFParticleMaker.so
-
+kfparticle-analysis: base-libs $(LIB_DIR)/libKFParticle.so $(LIB_DIR)/libStKfParticleCommon.so $(KF_MAKER_LIBS)
 test-femto-mixing-sampler: $(TEST_FEMTO_MIXING_SAMPLER)
 	$(TEST_FEMTO_MIXING_SAMPLER)
 
@@ -322,11 +322,11 @@ endef
 
 $(foreach maker,$(MAKER_NAMES),$(eval $(call MAKER_RULE,$(maker))))
 
-# Rebuild the entire KF ABI together after local header/flag changes.
-$(LIB_DIR)/StLambdaKFParticleMaker.o: $(KFP_HEADERS) $(KF_HELPER_HEADERS) include/cuts/KfParticleCutConfig.h Makefile
--include $(KFP_OBJS:.o=.d) $(KF_HELPER_OBJS:.o=.d) $(LIB_DIR)/StLambdaKFParticleMaker.d
+# Rebuild every auto-discovered KF Maker together after local header/flag changes.
+$(foreach _kf,$(KF_MAKER_NAMES),$(eval $(LIB_DIR)/$(_kf).o: $(KFP_HEADERS) $(KF_HELPER_HEADERS) include/cuts/KfParticleCutConfig.h Makefile))
+-include $(KFP_OBJS:.o=.d) $(KF_HELPER_OBJS:.o=.d) $(patsubst %,$(LIB_DIR)/%.d,$(KF_MAKER_NAMES))
 
 clean:
-	rm -f $(LIB_DIR)/*.o $(LIB_DIR)/*.so $(LIB_DIR)/kfp_*.d $(LIB_DIR)/kfhelper_*.d $(LIB_DIR)/StLambdaKFParticleMaker.d
+	rm -f $(LIB_DIR)/*.o $(LIB_DIR)/*.so $(LIB_DIR)/kfp_*.d $(LIB_DIR)/kfhelper_*.d $(patsubst %,$(LIB_DIR)/%.d,$(KF_MAKER_NAMES))
 	rm -f $(TEST_FEMTO_MIXING_SAMPLER) $(TEST_PHI_DAUGHTER_PID) $(TEST_PHI_MIX_SAMPLER) $(TEST_KFP_FULL_CHAIN) $(TEST_KFP_PICO_ADAPTER)
 	rm -rf $(YAML_CPP_BUILD)

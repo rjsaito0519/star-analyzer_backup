@@ -324,79 +324,19 @@ public:
   bool XiCandidate(const kfp::KFParticle& raw,
                    const std::vector<kfp::KFParticle>& particles,
                    const kfp::KFVertex& pv, const TVector3& picoPv,
-                   KfXiCandidate& out) {
-    if (raw.NDaughters() != 2 || !FiniteParticle(raw) || raw.GetNDF() <= 0 ||
-        raw.GetChi2() < 0.f) return false;
-    const kfp::KFParticle* lambda = 0;
-    const kfp::KFParticle* bachelor = 0;
+                   KfXiCandidate& out, StPicoDst* dst) {
+    // Minimal parent-only fill first so mass QA works even if daughter-id
+    // bookkeeping differs across Finder versions. Optional daughter recovery
+    // follows when NDaughters==2 with {bachelor track id, Lambda particle index}.
+    if (!FiniteParticle(raw) || raw.GetNDF() <= 0 || raw.GetChi2() < 0.f) return false;
     const int sign = raw.GetPDG() > 0 ? 1 : -1;
-    for (int daughter = 0; daughter < 2; ++daughter) {
-      const int particleIndex = raw.DaughterIds()[daughter];
-      if (particleIndex < 0 || static_cast<size_t>(particleIndex) >= particles.size())
-        return false;
-      const kfp::KFParticle& particle = particles[particleIndex];
-      if (particle.GetPDG() == 3122 * sign) lambda = &particle;
-      else if (particle.GetPDG() == -211 * sign && particle.NDaughters() == 1 &&
-               particle.GetQ() == -sign)
-        bachelor = &particle;
-      else return false;
-    }
-    if (!lambda || !bachelor || lambda->NDaughters() != 2) return false;
-
-    const kfp::KFParticle* proton = 0;
-    const kfp::KFParticle* pion = 0;
-    for (int daughter = 0; daughter < 2; ++daughter) {
-      const int particleIndex = lambda->DaughterIds()[daughter];
-      if (particleIndex < 0 || static_cast<size_t>(particleIndex) >= particles.size())
-        return false;
-      const kfp::KFParticle& particle = particles[particleIndex];
-      if (particle.NDaughters() != 1) return false;
-      if (particle.GetPDG() == 2212 * sign && particle.GetQ() == sign)
-        proton = &particle;
-      else if (particle.GetPDG() == -211 * sign && particle.GetQ() == -sign)
-        pion = &particle;
-      else return false;
-    }
-    if (!proton || !pion) return false;
-
-    out.protonId = proton->DaughterIds()[0];
-    out.pionId = pion->DaughterIds()[0];
-    out.bachelorId = bachelor->DaughterIds()[0];
-    const std::map<int, TrackPid>::const_iterator protonInput = trackPid.find(out.protonId);
-    const std::map<int, TrackPid>::const_iterator pionInput = trackPid.find(out.pionId);
-    const std::map<int, TrackPid>::const_iterator bachelorInput = trackPid.find(out.bachelorId);
-    if (out.protonId == out.pionId || out.protonId == out.bachelorId ||
-        out.pionId == out.bachelorId || protonInput == trackPid.end() ||
-        pionInput == trackPid.end() || bachelorInput == trackPid.end()) return false;
-    const TrackPid& protonPid = protonInput->second;
-    const TrackPid& pionPid = pionInput->second;
-    const TrackPid& bachelorPid = bachelorInput->second;
-    out.protonIndex = protonPid.index;
-    out.pionIndex = pionPid.index;
-    out.bachelorIndex = bachelorPid.index;
-    if (out.protonIndex == out.pionIndex || out.protonIndex == out.bachelorIndex ||
-        out.pionIndex == out.bachelorIndex) return false;
-    out.protonPidPull = protonPid.tpc[2];
-    out.pionPidPull = pionPid.tpc[0];
-    out.bachelorPidPull = bachelorPid.tpc[0];
-    out.protonHasTof = protonPid.hasTof;
-    out.pionHasTof = pionPid.hasTof;
-    out.bachelorHasTof = bachelorPid.hasTof;
-    out.protonTofPull = protonPid.tof[2];
-    out.pionTofPull = pionPid.tof[0];
-    out.bachelorTofPull = bachelorPid.tof[0];
-    out.protonTofM2 = protonPid.m2;
-    out.pionTofM2 = pionPid.m2;
-    out.bachelorTofM2 = bachelorPid.m2;
-    out.lambdaPdg = lambda->GetPDG();
+    out = KfXiCandidate();
     out.pdg = raw.GetPDG();
+    out.lambdaPdg = 3122 * sign;
     out.x = raw.GetX(); out.y = raw.GetY(); out.z = raw.GetZ();
     out.px = raw.GetPx(); out.py = raw.GetPy(); out.pz = raw.GetPz();
     out.chi2Ndf = raw.GetChi2() / raw.GetNDF();
     if (raw.GetMass(out.mass, out.massError) != 0 || out.massError <= 0.f) return false;
-    if (lambda->GetMass(out.lambdaMass, out.lambdaMassError) != 0 ||
-        out.lambdaMassError <= 0.f) return false;
-    out.daughterDistance = lambda->GetDistanceFromParticle(*bachelor);
     out.distanceToPv = raw.GetDistanceFromVertex(pv);
     raw.GetDistanceToVertexLine(pv, out.vertexLineLength, out.vertexLineLengthError);
     if (out.vertexLineLengthError <= 0.f) return false;
@@ -414,11 +354,71 @@ public:
     const double denominator = flight.Mag() * momentum.Mag();
     if (!std::isfinite(denominator) || denominator <= 0.) return false;
     out.cosPointing = std::max(-1., std::min(1., flight.Dot(momentum) / denominator));
+    out.daughterDistance = -1.f;
+    out.lambdaMass = 0.f;
+    out.lambdaMassError = -1.f;
+
+    if (raw.NDaughters() == 2 && dst) {
+      const int id0 = raw.DaughterIds()[0];
+      const int id1 = raw.DaughterIds()[1];
+      const kfp::KFParticle* lambda = 0;
+      int bachelorTrackId = -1;
+      if (id1 >= 0 && static_cast<size_t>(id1) < particles.size() &&
+          particles[id1].GetPDG() == 3122 * sign) {
+        lambda = &particles[id1];
+        bachelorTrackId = id0;
+      } else if (id0 >= 0 && static_cast<size_t>(id0) < particles.size() &&
+                 particles[id0].GetPDG() == 3122 * sign) {
+        lambda = &particles[id0];
+        bachelorTrackId = id1;
+      }
+      if (lambda) {
+        // Intermediate Lambda mass is available as soon as the V0 daughter is
+        // identified; do not wait for full bachelor/proton/pion ID recovery.
+        float unused = 0.f;
+        if (lambda->GetMass(out.lambdaMass, unused) == 0) {
+          out.lambdaMassError = unused;
+        }
+        out.daughterDistance = lambda->GetDistanceFromVertex(pv);
+      }
+      if (lambda && lambda->NDaughters() == 2 && bachelorTrackId >= 0) {
+        const kfp::KFParticle* proton = 0;
+        const kfp::KFParticle* pion = 0;
+        for (int daughter = 0; daughter < 2; ++daughter) {
+          const int particleIndex = lambda->DaughterIds()[daughter];
+          if (particleIndex < 0 || static_cast<size_t>(particleIndex) >= particles.size())
+            continue;
+          const kfp::KFParticle& particle = particles[particleIndex];
+          if (particle.NDaughters() != 1) continue;
+          if (particle.GetPDG() == 2212 * sign && particle.GetQ() == sign)
+            proton = &particle;
+          else if (particle.GetPDG() == -211 * sign && particle.GetQ() == -sign)
+            pion = &particle;
+        }
+        const std::map<int, TrackPid>::const_iterator bachelorInput =
+            trackPid.find(bachelorTrackId);
+        if (proton && pion && bachelorInput != trackPid.end()) {
+          out.protonId = proton->DaughterIds()[0];
+          out.pionId = pion->DaughterIds()[0];
+          out.bachelorId = bachelorTrackId;
+          const std::map<int, TrackPid>::const_iterator protonInput = trackPid.find(out.protonId);
+          const std::map<int, TrackPid>::const_iterator pionInput = trackPid.find(out.pionId);
+          if (protonInput != trackPid.end() && pionInput != trackPid.end()) {
+            out.protonIndex = protonInput->second.index;
+            out.pionIndex = pionInput->second.index;
+            out.bachelorIndex = bachelorInput->second.index;
+            out.protonPidPull = protonInput->second.tpc[2];
+            out.pionPidPull = pionInput->second.tpc[0];
+            out.bachelorPidPull = bachelorInput->second.tpc[0];
+          }
+        }
+      }
+    }
+
     const float values[] = {out.mass, out.massError, out.chi2Ndf, out.topoChi2Ndf,
-      out.daughterDistance, out.distanceToPv, out.vertexLineLength,
-      out.vertexLineLengthError, out.vertexLineLengthSignificance, out.decayLength,
-      out.decayLengthError, out.decayLengthSignificance, out.cosPointing,
-      out.lambdaMass, out.lambdaMassError};
+      out.distanceToPv, out.vertexLineLength, out.vertexLineLengthError,
+      out.vertexLineLengthSignificance, out.decayLength, out.decayLengthError,
+      out.decayLengthSignificance, out.cosPointing};
     for (size_t i = 0; i < sizeof(values) / sizeof(values[0]); ++i)
       if (!std::isfinite(values[i])) return false;
     return true;
@@ -540,7 +540,7 @@ public:
       } else if (std::abs(pdg) == 3312) {
         ++stats.xiParticles;
         KfXiCandidate candidate;
-        if (!XiCandidate(particles[i], particles, pv, position, candidate)) {
+        if (!XiCandidate(particles[i], particles, pv, position, candidate, dst)) {
           ++stats.invalidXiCandidates;
           continue;
         }
